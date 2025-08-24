@@ -3,6 +3,7 @@
 ; Codigo principal  
 ; Sistema de gestión de calificaciones en 8086
 ; ================================================
+
 .model small
 .stack 100h
 
@@ -19,11 +20,22 @@ op5         db "5. Salir.",13,10,"$"
 prompt      db 13,10,"Opcion: $"
 
 despedida   db 13,10,"===============================================",13,10,"Gracias por usar Registro CE",13,10,"===============================================",13,10,"$"
+msjinsert db "Por favor ingrese su estudiante o digite 9 para salir al menu principal",13,10,"$"
+buffer    db 50, ?, 50 dup(?)
+msjpos db "Que estudiante desea mostrar",13,10,"$" 
+msjorden db "Como desea ordenar las calificaciones",13,10,"$" 
+orden1 db "1. Asc",13,10,"$"   
+orden2 db "2. Des",13,10,"$" 
 
 ; ---------- VARIABLES DE ENTRADA ----------
 opcion db ?        ; aquí se guardará la opción elegida por el usuario (1-5)
 
-.code
+.code 
+; ---- IMPORTAR ARCHIVOS EXERNOS --- 
+include "IngresoCalificaciones.asm"
+include "Estadistica.asm" 
+include "Ordenamiento.asm" 
+
 main proc
     ; Inicializar segmento de datos
     mov ax, @data
@@ -83,7 +95,14 @@ menu_principal:
     mov ah, 1       ; funcion int 21h para leer un caracter
     int 21h
     sub al, '0'     ; convertir de ASCII a número (ej: '1' -> 1)
-    mov opcion, al  ; guardar opción
+    mov opcion, al  ; guardar opción   
+    
+    ; Saltar un espacio de línea
+    mov ah, 2
+    mov dl, 13
+    int 21h
+    mov dl, 10
+    int 21h
 
     ; Comparar opciones
     cmp opcion, 1
@@ -106,20 +125,25 @@ menu_principal:
 
 
 ; ---------- OPCIONES DEL MENÚ (POR AHORA VACÍAS) ----------
-ingresar_calificaciones:
-    ; Aquí irá la lógica de ingreso (fase 2)
-    jmp menu_principal
-
-mostrar_estadisticas:
+ingresar_calificaciones:  
+    ; Aquí irá la lógica de ingreso (fase 2)  
+    call MensajeIngreso  ; llama a la funcion dentro del include
+    call InputsIngresar
+    jmp menu_principal ;esto deberia de quitarse y ser llamada al seleccionar opcion 9
+    
+mostrar_estadisticas:   
     ; Aquí irá la lógica de estadísticas (fase 3)
     jmp menu_principal
 
 buscar_estudiante:
+    call MensajePos  ; llama a la funcion dentro del include  
     ; Aquí irá la lógica de búsqueda (fase 4)
     jmp menu_principal
 
-ordenar_calificaciones:
-    ; Aquí irá la lógica de ordenamiento (fase 5)
+ordenar_calificaciones: 
+    call MensajeOrden  ; llama a la funcion dentro del include 
+    ; Aquí irá la lógica de ordenamiento (fase 5) 
+    call InputsOrden
     jmp menu_principal
 
 ; ---------- SALIDA DEL PROGRAMA ----------
