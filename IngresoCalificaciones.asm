@@ -2,10 +2,6 @@
 ; IngresoCalificaciones.asm
 ; Ingreso de datos y acceso por indice (1..N)
 ; ================================================
-; NOTAS:
-; - Este archivo se INCLUYE en RegistroCE.asm
-; - 'buffer', 'records', 'student_count', 'id' y mensajes existen en RegistroCE.asm
-; - Ejecuta SOLO RegistroCE.asm en EMU8086
 
 ; ---- Mostrar mensaje de insercion
 MensajeIngreso PROC
@@ -15,12 +11,10 @@ MensajeIngreso PROC
     ret
 MensajeIngreso ENDP
 
-
 ; ---- Ingreso con validacion estricta:
-; Reglas para ACEPTAR:
-;   - Minimo 3 tokens: Nombre + Apellido + Nota   (Apellido2 es opcional)
-;   - El ULTIMO token debe ser NUMERICO: digitos y, como mucho, UN solo '.'.
-;   - '9' como unico caracter -> termina ingreso.
+;   - Min 3 tokens: Nombre + Apellido + Nota (Apellido2 opcional)
+;   - Nota: ultimo token numerico, max UN '.', y max 5 decimales
+;   - '9' como unico caracter -> termina ingreso
 InputsIngresar PROC
 InputLoop:
     ; Leer cadena en buffer (AH=0Ah, DS:DX -> buffer)
@@ -44,12 +38,12 @@ NotExit:
     ; === VALIDACION DE ENTRADA ===
     ; base = buffer+2
     lea si, [buffer+2]
-    ; end = base + len  ? GUARDAR en BP (¡no en BX!)
+    ; end = base + len  (guardar en BP)
     mov bx, si
     mov al, BYTE PTR [buffer+1]
     xor ah, ah
-    add bx, ax                   ; BX = end ptr temporal
-    mov bp, bx                   ; BP = end ptr DEFINITIVO (NO toques BP después)
+    add bx, ax
+    mov bp, bx                   ; BP = end ptr (NO tocar luego)
 
     ; Contar tokens (transiciones espacio->no-espacio)
     ; CH = token_count, DL = inword(0/1), DI = inicio del ultimo token
@@ -58,7 +52,7 @@ NotExit:
     mov di, si
 
 ScanTokens:
-    cmp si, bp                   ; usar BP como fin
+    cmp si, bp
     jae TokensDone
     mov al, BYTE PTR [si]
     cmp al, ' '
@@ -82,13 +76,14 @@ TokensDone:
     cmp ch, 3
     jb  BadInput
 
-    ; Validar que el ULTIMO token sea numerico (digitos + a lo sumo UN '.')
-    mov si, di                   ; SI -> inicio del ultimo token
-    xor bh, bh                   ; BH = dot_flag (0 = ninguno visto)
-    xor bl, bl                   ; BL = digit_count
+    ; Validar ultimo token numerico con max 5 decimales
+    mov si, di; SI -> inicio del ultimo token
+    xor bh, bh; BH = dot_flag (0/1)
+    xor bl, bl; BL = digit_count total
+    xor dh, dh; DH = postdot_count (0..5)
 
 ValidateLast:
-    cmp si, bp                   ; usar BP como fin SIEMPRE
+    cmp si, bp
     jae LastDone
     mov al, BYTE PTR [si]
     cmp al, ' '
@@ -96,11 +91,20 @@ ValidateLast:
 
     cmp al, '.'
     je  MaybeDot
+
+    ; debe ser '0'..'9'
     cmp al, '0'
     jb  BadInput
     cmp al, '9'
     ja  BadInput
-    inc bl                       ; suma un digito
+
+    inc bl                       ; suma un digito total
+    cmp bh, 0
+    je  AfterChkDone
+    inc dh                       ; estamos despues del '.'
+    cmp dh, 5
+    ja  BadInput                 ; mas de 5 decimales -> invalido
+AfterChkDone:
     inc si
     jmp ValidateLast
 
@@ -115,7 +119,6 @@ LastDone:
     ; Debe haber al menos 1 digito
     cmp bl, 1
     jb  BadInput
-
     ; No permitir que termine en '.'
     mov di, si
     dec di
@@ -123,26 +126,30 @@ LastDone:
     cmp al, '.'
     je  BadInput
 
-    ; === Cupo disponible? ===
-    mov al, student_count
-    cmp al, MAX_STUDENTS
-    jb  HasSpace
+    ; --- Sincroniza contador, por seguridad ---
+    call SyncCountFromRecords
 
-    ; Lista llena
+    ; === Detectar primer slot libre (llenamos huecos si los hubiera) ===
+    mov di, offset records
+    mov cx, MAX_STUDENTS
+    xor bx, bx                   ; BX = indice de slot (0..14)
+
+FindFree:
+    mov al, [di]
+    cmp al, '$'
+    je  SlotFound
+    add di, SLOT_LEN
+    inc bx
+    loop FindFree
+
+    ; Sin espacio: avisar y seguir leyendo hasta '9'
     mov dx, offset msjlleno
     mov ah, 9
     int 21h
     jmp InputLoop
 
-HasSpace:
-    ; DI = destino = records + (student_count * 64)
-    xor bx, bx
-    mov bl, student_count        ; BL = i
-    shl bx, 6                    ; i * 64
-    mov di, offset records
-    add di, bx
-
-    ; Copiar min(len, SLOT_LEN-1) bytes a records[i]
+SlotFound:
+    ; Copiar min(len, SLOT_LEN-1) bytes a records[slot]
     lea si, [buffer+2]
     xor cx, cx
     mov cl, BYTE PTR [buffer+1]
@@ -150,13 +157,18 @@ HasSpace:
     jbe CopyLenOk
     mov cx, (SLOT_LEN-1)
 CopyLenOk:
-    rep movsb                    ; DS:SI -> ES:DI  (ES=DS en main)
+    cld                           ; SIEMPRE copiar hacia adelante
+    rep movsb                     ; DS:SI -> ES:DI
 
-    mov BYTE PTR [di], '$'       ; terminar en '$'
+    mov BYTE PTR [di], '$'        ; terminar en '$'
 
-    inc student_count            ; AQUI ya contamos el alumno
-
-    ; CRLF + volver a pedir
+    ; Actualiza student_count = max(student_count, slot_index+1)
+    mov al, bl
+    inc al                        ; 1..15
+    cmp al, student_count
+    jbe NoBump
+    mov student_count, al
+NoBump:
     mov ah, 2
     mov dl, 13
     int 21h
@@ -170,7 +182,6 @@ CopyLenOk:
     jmp InputLoop
 
 BadInput:
-    ; Mensaje de dato incompleto/nota invalida
     mov dx, offset msjincomp
     mov ah, 9
     int 21h
@@ -193,21 +204,18 @@ EndInput:
 InputsIngresar ENDP
 
 
-; ---- Pedir indice (1..N) con AH=01h (acepta 1..15), repregunta hasta ser valido
-; ---- Pedir indice (1..N) con AH=01h (acepta 1..15), repregunta hasta ser valido
-; ---- Pedir indice (1..N) con AH=01h (acepta 1..15), repregunta hasta ser valido
-; Deja definido en RegistroCE.asm: student_count, id, msjpos, msjinv
 ; ---- Pedir indice (1..N) usando AH=0Ah con idxbuf, valida 1..15 y <= student_count
 MensajePos PROC
-AskIndex:  
-    ; Sincroniza el contador con lo que hay en memoria
+AskIndex:
+    ; Sincroniza el contador con lo que hay en memoria real
     call SyncCountFromRecords
-    ; Mostrar cuántos registros hay (útil para confirmar que se guardó)
-    mov dx, offset msjreg          ; "Registros cargados: $"
+
+    ; Mostrar cuantos registros hay
+    mov dx, offset msjreg
     mov ah, 9
     int 21h
     mov al, BYTE PTR student_count
-    call PrintByteDec              ; (esta rutina ya está en RegistroCE.asm)
+    call PrintByteDec
     call PrintCRLF
 
     ; Prompt
@@ -218,7 +226,7 @@ AskIndex:
     ; Si no hay registros, salir
     cmp BYTE PTR student_count, 0
     jne  ContinueAsk
-    mov dx, offset msjinv          ; "Indice invalido."
+    mov dx, offset msjinv
     mov ah, 9
     int 21h
     ret
@@ -234,13 +242,13 @@ ContinueAsk:
     cmp cl, 0
     je  BadShow
 
-    ; SI -> primer char, AX=0 acumulará el número
+    ; SI -> primer char, AX=0 acumulara el numero
     lea si, [idxbuf+2]
     xor ax, ax
 
 ParseDigits:
-    mov bl, BYTE PTR [si]          ; leer char
-    ; aceptar solo '0'..'9'
+    mov bl, BYTE PTR [si]
+    ; solo '0'..'9'
     cmp bl, '0'
     jb  BadShow
     cmp bl, '9'
@@ -250,12 +258,12 @@ ParseDigits:
     mov dl, bl
     sub dl, '0'
     mov bx, ax
-    shl ax, 1                      ; 2*old
-    shl bx, 3                      ; 8*old
-    add ax, bx                     ; 10*old
+    shl ax, 1
+    shl bx, 3
+    add ax, bx
     xor bx, bx
     mov bl, dl
-    add ax, bx                     ; + digit
+    add ax, bx
 
     inc si
     dec cl
@@ -267,12 +275,12 @@ ParseDigits:
     cmp ax, 15
     ja  BadShow
 
-    ; validar <= student_count (comparación en byte)
+    ; validar <= student_count (byte)
     mov bl, BYTE PTR student_count
     cmp al, bl
     ja  BadShow
 
-    mov id, al                     ; OK
+    mov id, al
     call PrintCRLF
     ret
 
@@ -284,7 +292,8 @@ BadShow:
     jmp AskIndex
 MensajePos ENDP
 
- ; ---- Mostrar por posicion (1..student_count)
+
+; ---- Mostrar por posicion (1..student_count)
 MostrarPorIndice PROC
     mov al, id
     cmp al, 1
@@ -296,7 +305,7 @@ MostrarPorIndice PROC
     dec al
     xor bx, bx
     mov bl, al
-    shl bx, 6                      ; *64
+    shl bx, 6
     mov dx, offset records
     add dx, bx
     mov ah, 9
@@ -312,4 +321,3 @@ BadIndex:
     call PrintCRLF
     ret
 MostrarPorIndice ENDP
-

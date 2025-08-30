@@ -3,22 +3,15 @@
 ; Sistema de gestión de calificaciones en 8086
 ; ================================================
 
-; ================================================
-; RegistroCE.asm
-; Sistema de gestión de calificaciones en 8086
-; ================================================
-
-.model small
-.stack 100h
+.model small  ; memoria, entra a un segmento
+.stack 100h  ;reserve    100h = 256 bytes
 
 .data
 ; ---------- CONSTANTES ----------
-MAX_STUDENTS    EQU 15
-SLOT_LEN        EQU 64                 ; 64 bytes por registro (linea + '$')
+MAX_STUDENTS    EQU 15; Max de registro
+SLOT_LEN        EQU 64; 64 bytes por registro
 
-; 0 = NO limpiar pantalla en cada vuelta del menu
-; 1 = limpiar pantalla
-do_clear    db 0
+do_clear    db 0;flag limpiar pantalla
 
 ; ---------- MENSAJES ----------
 titulo      db 13,10,"===============================================",13,10,"Bienvenidos a RegistroCE",13,10,"===============================================",13,10,13,10,"$"
@@ -41,25 +34,23 @@ orden2      db "2. Des",13,10,"$"
 ; ---------- MENSAJES EXTRA ----------
 msjlleno    db 13,10,"Lista llena (max 15). Presione 9 para volver al menu.",13,10,"$"
 msjinv      db 13,10,"Indice invalido.",13,10,"$"
-msjincomp   db 13,10,"Dato incompleto o nota invalida. Formato: Nombre Apellido [Apellido2] Nota",13,10,"$"
-
-; (mensajes de ayuda/debug opcionales)
+msjincomp   db 13,10,"Dato incompleto o nota invalida. Formato: Nombre Apellido [Apellido2] Nota (hasta 5 decimales).",13,10,"$"
 msjcnt      db "Guardados: $"
 msjreg      db "Registros cargados: $"
 
 ; ---------- VARIABLES ----------
-opcion          db 0               ; (1..5)
-student_count   db 0               ; (0..15)
-id              db 0               ; (1..N)
+opcion          db 0; (1..5 opcion del menu)
+student_count   db 0; (0..15 cant registros en memoria)
+id              db 0; (1..N indice solicitado)
 
-; ---------- ALMACENAMIENTO ----------
-; 15 * 64 bytes: cada registro es la linea completa ingresada + '$'
-records     db MAX_STUDENTS*SLOT_LEN dup('$')
+; ---------- ALMACENAMIENTO en memoria ----------
+; 15 * 64 bytes: cada registro es la linea completa ingresada
+records     db MAX_STUDENTS*SLOT_LEN dup('$') ;La idea de trabajarlo con records fue gracias a la base de Chat GPT. 
 
 ; ---------- BUFFERS ----------
 ; AH=0Ah: byte0 = tam max, byte1 = longitud, bytes siguientes = datos
 buffer      db (SLOT_LEN-1), 0, (SLOT_LEN-1) dup(?)
-idxbuf      db 3, 0, 3 dup(?)      ; *** USADO POR MensajePos (opcion 3) ***
+idxbuf      db 3, 0, 3 dup(?)      ; buffer de indice en opcion 3
 
 .code
 
@@ -68,7 +59,7 @@ include "IngresoCalificaciones.asm"
 include "Estadistica.asm"
 include "Ordenamiento.asm"
 
-; ---------- UTIL: limpiar pantalla opcional ----------
+; ----------limpiar pantalla----------
 ClearScreen PROC
     cmp do_clear, 0
     je  cs_exit
@@ -82,7 +73,7 @@ cs_exit:
     ret
 ClearScreen ENDP
 
-; ---------- UTIL: salto de linea ----------
+; ---------- salto de linea ----------
 PrintCRLF PROC
     mov ah, 2
     mov dl, 13
@@ -92,10 +83,9 @@ PrintCRLF PROC
     ret
 PrintCRLF ENDP
 
-; ---------- UTIL: imprime AL (0..99) en decimal ----------
+; ----------imprime AL (0..99) en decimal ----------
 PrintByteDec PROC
     ; entrada: AL = 0..99
-    ; destruye AX, BX, DX
     xor ah, ah        ; AX = AL
     mov bl, 10
     div bl            ; AL = decenas, AH = unidades
@@ -113,17 +103,49 @@ only_units:
     ret
 PrintByteDec ENDP
 
+; ---------- Recuenta mirando TODOS los slots ----------
+; cuenta los 15 slots de 64 bytes 
+SyncCountFromRecords PROC
+    push ax
+    push bx
+    push cx
+    push si
+
+    mov si, offset records; SI-inicio arreglo registro
+    mov cx, MAX_STUDENTS;cuenta slots
+    xor bl, bl; BL = ultimo_indice (0 = ninguno)
+    mov al, 1 ; i = 1..inidice que guarda en BL
+
+scan_all:
+    mov dl, [si]; primer byte del slot i
+    cmp dl, '$'; dollar= slot vacio
+    je  next_slot; '$' => vacio, solo seguir
+    mov bl, al; guarda i como ultimo ocupado
+next_slot:
+    add si, SLOT_LEN ;siguiente slot
+    inc al ; sigue al otro indice 
+    loop scan_all;repite 15 v
+
+    mov student_count, bl; guarda el indice
+
+    pop si
+    pop cx
+    pop bx
+    pop ax
+    ret
+SyncCountFromRecords ENDP
+
 
 main proc
-    ; Inicializar DS y ES
+    ; Inicializar DS y ES e ingrese en data
     mov ax, @data
     mov ds, ax
     push ds
-    pop  es           ; ES=DS para rep movsb en ingreso
+    pop  es; ES=DS para rep movsb en ingreso
 
 ; ---------- BUCLE PRINCIPAL DEL MENÚ ----------
 menu_principal:
-    call ClearScreen
+    call ClearScreen;limpia si es 1
 
     ; titulo
     mov dx, offset titulo
@@ -189,61 +211,30 @@ menu_principal:
 
 ; ---------- OPCIONES ----------
 ingresar_calificaciones:
-    call MensajeIngreso
-    call InputsIngresar
-    jmp menu_principal
+    call MensajeIngreso ;(ingresoCalificaciones.asm)
+    call InputsIngresar ; lee linea
+    jmp menu_principal  ; vuelve menu
 
 mostrar_estadisticas:
-    ; (stub por ahora)
-    ; call CalcularYMostrarEstadisticas
     jmp menu_principal
 
 buscar_estudiante:
-    call MensajePos         ; lee índice usando idxbuf (AH=0Ah) y valida 1..student_count
-    call MostrarPorIndice   ; imprime el registro
+    call MensajePos;pide un indice
+    call MostrarPorIndice; imprime el registro con AH=09
     jmp menu_principal
 
 ordenar_calificaciones:
-    call MensajeOrden
+    call MensajeOrden;(0rdenamiento.asm)
     call InputsOrden
     jmp menu_principal
-; --- Recalcula student_count escaneando records ---
-; Cuenta slots ocupados: un slot vacio tiene '$' en su primer byte
-SyncCountFromRecords PROC
-    push ax
-    push bx
-    push cx
-    push si
-
-    mov si, offset records
-    mov cx, MAX_STUDENTS
-    xor bl, bl                 ; bl = real_count
-
-next_slot:
-    mov al, [si]               ; primer char del slot
-    cmp al, '$'
-    je  done_count             ; '$' => vacio => terminamos
-    inc bl
-    add si, SLOT_LEN
-    loop next_slot
-
-done_count:
-    mov student_count, bl
-
-    pop si
-    pop cx
-    pop bx
-    pop ax
-    ret
-SyncCountFromRecords ENDP
 
 ; ---------- SALIDA ----------
 salir_programa:
     mov dx, offset despedida
     mov ah, 9
-    int 21h
+    int 21h; imprime mensaje de salida
 
-    mov ah, 4Ch
+    mov ah, 4Ch;INT 21h/AH=4Ch: terminar programa a DOS
     int 21h
 
 main endp
