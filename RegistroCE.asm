@@ -21,16 +21,36 @@ prompt      db 13,10,"Opcion: $"
 
 despedida   db 13,10,"===============================================",13,10,"Gracias por usar Registro CE",13,10,"===============================================",13,10,"$"
 msjinsert db "Por favor ingrese su estudiante o digite 9 para salir al menu principal",13,10,"$"
-buffer    db 50, ?, 50 dup(?)
+
 msjpos db "Que estudiante desea mostrar",13,10,"$" 
 msjorden db "Como desea ordenar las calificaciones",13,10,"$" 
 orden1 db "1. Asc",13,10,"$"   
 orden2 db "2. Des",13,10,"$" 
+;----------- CONSTANTES PARA INGRESO DE HASTA 15 DATOS-----
+MAX_STUDENTS    EQU 15
+SLOT_LEN        EQU 64   ;64 bytes para registro
 
 ; ---------- VARIABLES DE ENTRADA ----------
 opcion db ?        ; aquí se guardará la opción elegida por el usuario (1-5)
+student_count   db 0          ; cantidad actual (0..15)
+id              db 0         ; índice que ingresa el usuario (1..N)
+; ---------- MENSAJES EXTRA ----------
+msjlleno    db 13,10,"Lista llena (max 15). Presione 9 para volver al menu.",13,10,"$"
+msjinv      db 13,10,"Indice invalido.",13,10,"$"
 
-.code 
+; ---------- ALMACENAMIENTO ----------
+; 15 * 64 bytes: cada registro es la linea completa + '$'
+records     db MAX_STUDENTS*SLOT_LEN dup('$')
+
+; ---------- BUFFER PARA AH=0Ah ----------
+; byte0 = tamaño max, byte1 = longitud leida, luego datos
+; ---------- BUFFERES ----------
+; AH=0Ah (entrada bufferizada): byte0=tam max, byte1=longitud, bytes siguientes=datos
+; Alineado para que nunca exceda SLOT_LEN-1 y podamos terminar en '$'
+buffer      db (SLOT_LEN-1), 0, (SLOT_LEN-1) dup(?)
+idxbuf      db 3, 0, 3 dup(?)                         ; para indice (10..15)
+
+
 ; ---- IMPORTAR ARCHIVOS EXERNOS --- 
 include "IngresoCalificaciones.asm"
 include "Estadistica.asm" 
@@ -39,7 +59,10 @@ include "Ordenamiento.asm"
 main proc
     ; Inicializar segmento de datos
     mov ax, @data
-    mov ds, ax
+    mov ds, ax  
+    ; ES = DS para que rep movsb copie en .data
+    push ds
+    pop  es
 
 ; ---------- BUCLE PRINCIPAL DEL MENÚ ----------
 menu_principal:
@@ -136,8 +159,9 @@ mostrar_estadisticas:
     jmp menu_principal
 
 buscar_estudiante:
-    call MensajePos  ; llama a la funcion dentro del include  
-    ; Aquí irá la lógica de búsqueda (fase 4)
+    call MensajePos
+    ; 'id' ya queda en memoria (0..9 -> 0..9). Nuestro procedimiento imprime.
+    call MostrarPorIndice
     jmp menu_principal
 
 ordenar_calificaciones: 
