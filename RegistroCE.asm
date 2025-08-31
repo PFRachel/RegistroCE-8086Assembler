@@ -36,7 +36,7 @@ msjlleno    db 13,10,"Lista llena (max 15). Presione 9 para volver al menu.",13,
 msjinv      db 13,10,"Indice invalido.",13,10,"$"
 msjincomp   db 13,10,"Dato incompleto o nota invalida. Formato: Nombre Apellido [Apellido2] Nota (hasta 5 decimales).",13,10,"$"
 msjcnt      db "Guardados: $"
-msjreg      db "Registros cargados: $"  
+msjreg      db "Registros cargados: $"
 
 ; ---------- VARIABLES ----------
 opcion          db 0; (1..5 opcion del menu)
