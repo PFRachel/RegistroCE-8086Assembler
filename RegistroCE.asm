@@ -37,6 +37,26 @@ msjinv      db 13,10,"Indice invalido.",13,10,"$"
 msjincomp   db 13,10,"Dato incompleto o nota invalida. Formato: Nombre Apellido [Apellido2] Nota (hasta 5 decimales).",13,10,"$"
 msjcnt      db "Guardados: $"
 msjreg      db "Registros cargados: $"
+msjprom     db 13,10,'Promedio general: $'
+msjnoreg    db 13,10,'No hay registros cargados.$'
+
+; === Mensajes de Estadistica ===
+msj_est_tit    db 13,10,'=== Estadisticas ===',13,10,'$'
+msj_prom_lbl   db 'Promedio general: $'
+msj_max_lbl    db 'Nota maxima: $'
+msj_min_lbl    db 'Nota minima: $'
+msj_apr_lbl    db 'Aprobados: $'
+msj_rep_lbl    db 'Reprobados: $'
+msj_spc_pct    db ' (','$'
+msj_pct_close  db '%)',13,10,'$'
+
+; === Variables temporales de Estadistica ===
+tot_lo   dw 0
+tot_hi   dw 0
+max100   dw 0
+min100   dw 0
+apr_cnt  db 0
+rep_cnt  db 0
 
 ; ---------- VARIABLES ----------
 opcion          db 0; (1..5 opcion del menu)
@@ -215,9 +235,6 @@ ingresar_calificaciones:
     call InputsIngresar ; lee linea
     jmp menu_principal  ; vuelve menu
 
-mostrar_estadisticas:
-    jmp menu_principal
-
 buscar_estudiante:
     call MensajePos;pide un indice
     call MostrarPorIndice; imprime el registro con AH=09
@@ -226,8 +243,11 @@ buscar_estudiante:
 ordenar_calificaciones:
     call MensajeOrden;(0rdenamiento.asm)
     call InputsOrden
+    jmp menu_principal 
+     
+mostrar_estadisticas:
+    call MostrarEstadisticas
     jmp menu_principal
-
 ; ---------- SALIDA ----------
 salir_programa:
     mov dx, offset despedida
