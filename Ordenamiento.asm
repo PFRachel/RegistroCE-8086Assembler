@@ -1,96 +1,145 @@
 ;Ordenamiento.asm 
-;Ascendente/Descendente 
-;Referencia: La Ruta Dev (Youtube)
+;Ascendente/Descendente  
+
+Max_estudiantes EQU 15
+slot_len EQU 64   
 
 DATOS SEGMENT                         
 ;========== VARIABLES==========
 
 op db ? ;aquí se guardará la opción elegida por el usuario (1/2)
  
-array_burbuja DB 15, 79, 90, 59,70  ;[MODIFICAR] Lista donde se toma los datos de las calificaciones
-A DB 5
-
+index_estudiante DB Max_estudiantes dup(?)  ;[MODIFICAR] Lista donde se toma los datos de los estudiantes
 
 DATOS ENDS
 ;===============================
 
-PILA SEGMENT   
+
+CODIGOPRINCIPAL SEGMENT     
     
-    DB 64 DUP(0)
+GetNota PROC
+    PUSH SI 
+    PUSH DI 
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    MOV SI, OFFSET records
+    MOV AX, BX
+    MOV CX, slot_len
+    MUL CX
+    ADD SI, AX ; si apunta al registro
+    ADD SI, slot_len
+    DEC SI
 
-PILA ENDS
+HayEspacio:
+    CMP byte ptr [si], " "
+    JE AquiNota
+    DEC SI
+    JMP HayEspacio  
 
-CODIGOPRINCIPAL SEGMENT
-
-INICIO PROC FAR
+AquiNota:
+    INC SI ;donde está la nota
+    MOV AL, [SI]
+    SUB AL,"0"
+    MOV AH, 10
+    MUL AH ;decena
+    INC SI
+    MOV AH, [SI]
+    SUB AH, "0"
+    ADD AL, AH
+    POP DI 
+    POP SI
+    RET       
     
-ASSUME DS:DATOS, CS:CODIGOPRINCIPAL, SS:PILA
-PUSH DS
-MOV AX,0
-PUSH AX
-; Inicializar segmentos
-MOV AX,DATOS
-MOV DS,AX
-MOV ES,AX
-
-CALL InputsOrden
-
-CALL Burbuja             
-
-INICIO ENDP
-            
+GetNota ENDP
+           
 ;======== ALGORITMO BURBUJA ==========  
-Burbuja PROC
+Burbuja PROC 
+;guardar registros de uso
+    PUSH AX   
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    PUSH SI
+    PUSH DI
 
-MOV CX,5 ;[MODIFICAR] Cantidad de comparaciones/repeticiones del algoritmo
-MOV SI,0 ;Limpiar registros indice (por si acaso)
-MOV DI,0 
-                                                 
-CICLO1:
-PUSH CX ;poner en pila el valor de CX                                                           
-MOV SI, OFFSET array_burbuja ;pasar direccion efectiva del arreglo a SI 
-MOV DI,SI ;pasarlo a DI  
+;iniciar indices de los estudiantes 
+XOR SI, SI  
+MOV CL, student_count ; Variable  
 
-; Ver seleccion Asc/Des
-MOV AL, [op]
-CMP AL,1 
+InitLoop:                      
+MOV AX, SI
+MOV AL, AL  
+MOV [index_estudiante + SI], AL 
+INC BL
+INC SI
+LOOP InitLoop
+
+
+; Indice para recorrer N-1 veces el algoritmo
+MOV Cl, student_count  
+MOV CH, 0 
+DEC CX 
+
+CICLO1: 
+MOV SI, 0
+XOR DX, CX ; Segundo Indice para comparar otro elemento
+         
+         
+CICLO2:  
+; Cargar indices1 y 2
+MOV AL, [index_estudiante + SI]   
+
+; Obtener notas
+MOV BX, AX
+CALL GetNota
+MOV DL, AL
+
+MOV BH, 0
+CALL GetNota
+MOV DH, AL 
+
+; Ver si es asc o des
+CMP op, 1
 JE o_asc
 
-CMP AL,2
+CMP op, 2
 JE o_des
+JMP skip
 
-POP CX
-JMP InputsOrden                                            
-
-o_asc:                                                                    
-INC DI ;incrementar el indice DI para comparar el proximo elemento    
-MOV AL,[SI] ;pasar la el valor en la direccion SI a AL
-CMP AL, [DI] ;comparar con el valor de DI
-JG INTERCAMBIO ;salta a etiqueta, cambiar si AL es mayor que DI
-JB MENOR ;salta a etiqueta  
+o_asc:
+CMP DL, DH
+JG Intercambio ; Si la nota anterior es menor al actual, se inserta
+JMP skip   
 
 o_des:                                                                    
-INC DI ;incrementar el indice DI para comparar el proximo elemento    
-MOV AL,[SI] ;pasar la el valor en la direccion SI a AL
-CMP AL, [DI] ;comparar con el valor de DI
-JL INTERCAMBIO ;salta a etiqueta, cambiar si AL es menor que DI
-JB MENOR ;salta a etiqueta
+CMP DH, DL
+JL Intercambio ; Si la nota anterior es mayor al actual, se inserta
+JMP skip
 
-INTERCAMBIO:    
-MOV AH,[DI] ;mover el valor de DI a AH
-MOV [DI],AL ;mover el valor de AL a DI
-MOV [SI],AH ;pasar el valor de AH a SI
+Intercambio:  
+; intercambiar los indices
+MOV AL, [index_estudiante + SI] 
+MOV AH, [index_estudiante + SI+ 1]
+MOV [index_estudiante + SI], AH
+MOV [index_estudiante + SI+ 1], AL
 
-MENOR:
-INC SI ;incrementar indice del segundo numero
-;la funcion de LOOP permite que al terminar el ciclo este pase a 
-;POP que es reducir el indice para que se vuelva a comparar con todos, denuevo
-POP CX ;decrementar el conteo del ciclo
-LOOP CICLO1 ;entrar en ciclo con otro indice, compara los numeros y los intercambia
+skip:
+INC SI
+DEC DX
+JNZ CICLO2 
+DEC CX
+JNZ CICLO1 
 
-EXIT:
-RET
-Burbuja ENDP                                                                
+POP DI
+POP SI
+POP DX
+POP CX
+POP BX
+POP AX
+RET 
+
+Burbuja ENDP                                                          
 
 MensajeOrden PROC 
     mov dx, offset msjorden
@@ -124,5 +173,4 @@ InputsOrden PROC
     
 RET                           
                                   
-InputsOrden ENDP
-
+InputsOrden ENDP  
