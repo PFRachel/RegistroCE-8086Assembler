@@ -18,84 +18,89 @@ MostrarEstadisticas PROC
     ; Sincronizar conteo desde memoria
     call SyncCountFromRecords
 
-    cmp BYTE PTR student_count, 0
-    jne ms_continuar
-    mov dx, offset msjnoreg
-    mov ah, 9
-    int 21h
-    call PrintCRLF
-    jmp ms_salir
-
-ms_continuar:
+    ; Titulo
     mov dx, offset msj_est_tit
     mov ah, 9
     int 21h
 
-        ; Inicializar variables
+    ; --- Inicializar estado ---
     xor ax, ax
-    mov tot_lo, ax
-    mov tot_hi, ax
     mov apr_cnt, al
     mov rep_cnt, al
     mov max100, ax
+    mov ax, 0FFFFh
+    mov min100, ax
 
-    mov ax, 0FFFFh              ; valor muy grande (65535)
-    mov min100, ax              ; garantiza que el primer registro lo sobreescriba
+    ; --- Acumulador 32-bit local para PROMEDIO:  sum = DX:DI ---
+    xor dx, dx              ; sum_hi = 0
+    xor di, di              ; sum_lo = 0
 
-    ; Procesar todos los registros
-    mov si, offset records      ; SI = inicio de records
-    mov cl, [student_count]     ; CL = numero de estudiantes
-    xor ch, ch                  ; CX = numero de estudiantes
+    ; --- N local (slots ocupados) ---
+    xor bx, bx              ; BX = N_local
 
-ms_bucle:
-    push cx                     ; Guardar contador
-    push si                     ; Guardar posicion actual
-    
-    ; Extraer nota del registro actual
-    call ExtractValue100        ; AX = nota * 100
-    
-    ; Actualizar sumatoria (32 bits)
-    add tot_lo, ax
-    adc tot_hi, 0
-    
-    ; Actualizar maximo
+    ; --- Escanear SIEMPRE todos los slots ---
+    mov si, offset records
+    mov cx, MAX_STUDENTS
+
+ms_scan:
+    cmp BYTE PTR [si], '$'  ; '$' => slot vacío
+    je  ms_next
+
+    inc bx                  ; N_local++
+
+    ; AX := nota*100
+    push si
+    call ExtractValue100
+    pop  si
+
+    ; sum += AX  (DX:DI += AX)
+    add di, ax
+    adc dx, 0
+
+    ; Maximo
     cmp ax, max100
     jbe ms_chk_min
     mov max100, ax
-    
 ms_chk_min:
-    ; Actualizar minimo
+    ; Minimo
     cmp ax, min100
-    jae ms_chk_aprobado
+    jae ms_chk_apr
     mov min100, ax
-    
-ms_chk_aprobado:
-    ;Verificar si aprobo (>=70.00 = >=7000)
+ms_chk_apr:
+    ; Aprobado si >= 70.00 (7000)
     cmp ax, 7000
-    jb  ms_reprobado
+    jb  ms_rep
     inc apr_cnt
-    jmp ms_siguiente
-    
-ms_reprobado:
+    jmp ms_next
+ms_rep:
     inc rep_cnt
-    
-ms_siguiente:
-    pop si                      ; Recuperar posición
-    pop cx                      ; Recuperar contador
-    add si, 64                  ; Siguiente registro (64 bytes por slot)
-    loop ms_bucle
 
-    ; Calcular promedio = total / cantidad
-    mov ax, tot_lo
-    mov dx, tot_hi  
-    mov cl, [student_count]
-    xor ch, ch
-    div cx                      ; AX = promedio * 100
+ms_next:
+    add si, SLOT_LEN
+    loop ms_scan
 
-    ; Mostrar promedio
+    ; --- Sin datos ---
+    cmp bx, 0              ; N_local == 0 ?
+    jne ms_avg
+    mov dx, offset msjnoreg
+    mov ah, 9
+    int 21h
+    call PrintCRLF
+    jmp ms_out
+
+ms_avg:
+    ; --- PROMEDIO = (DX:DI) / N_local  -> AX = promedio*100 ---
+    mov ax, di             ; low word
+    ; DX ya tiene la high word
+    mov cx, bx             ; divisor = N_local
+    div cx                 ; AX = promedio*100
+
+    ; === Guarda AX antes de imprimir la etiqueta ===
+    push ax
     mov dx, offset msj_prom_lbl
     mov ah, 9
     int 21h
+    pop ax
     call PrintValue100
     call PrintCRLF
 
@@ -103,19 +108,19 @@ ms_siguiente:
     mov dx, offset msj_max_lbl
     mov ah, 9
     int 21h
-    mov ax, max100
+    mov ax, max100         ; recarga AX después de imprimir etiqueta
     call PrintValue100
     call PrintCRLF
 
-    ; Mostrar minimo  
+    ; Mostrar minimo
     mov dx, offset msj_min_lbl
     mov ah, 9
     int 21h
-    mov ax, min100
+    mov ax, min100         ; recarga AX después de imprimir etiqueta
     call PrintValue100
     call PrintCRLF
-
-    ; Mostrar aprobados
+    ; --- Calculo de porcentajes ---
+    ; Aprobados
     mov dx, offset msj_apr_lbl
     mov ah, 9
     int 21h
@@ -124,21 +129,21 @@ ms_siguiente:
     mov dx, offset msj_spc_pct
     mov ah, 9
     int 21h
-    
-    ; Calcular porcentaje aprobados
+
+    ; % aprob = apr_cnt * 100.00 / student_count
     xor ax, ax
     mov al, apr_cnt
     mov bx, 10000
-    mul bx                      ; DX:AX = aprobados * 10000
+    mul bx                      ; DX:AX = apr_cnt * 10000
     mov cl, [student_count]
     xor ch, ch
-    div cx                      ; AX = porcentaje * 100
+    div cx                      ; AX = porcentaje*100
     call PrintValue100
     mov dx, offset msj_pct_close
     mov ah, 9
     int 21h
 
-    ; Mostrar reprobados
+    ; Reprobados
     mov dx, offset msj_rep_lbl
     mov ah, 9
     int 21h
@@ -147,15 +152,15 @@ ms_siguiente:
     mov dx, offset msj_spc_pct
     mov ah, 9
     int 21h
-    
-    ; Calcular porcentaje reprobados
+
+    ; % rep = rep_cnt * 100.00 / student_count
     xor ax, ax
     mov al, rep_cnt
     mov bx, 10000
-    mul bx                      ; DX:AX = reprobados * 10000
+    mul bx                      ; DX:AX = rep_cnt * 10000
     mov cl, [student_count]
     xor ch, ch
-    div cx                      ; AX = porcentaje * 100
+    div cx                      ; AX = porcentaje*100
     call PrintValue100
     mov dx, offset msj_pct_close
     mov ah, 9
@@ -163,7 +168,7 @@ ms_siguiente:
 
     call PrintCRLF
 
-ms_salir:
+ms_out:
     pop di
     pop si
     pop dx

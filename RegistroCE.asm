@@ -1,6 +1,6 @@
 ; ================================================
 ; RegistroCE.asm
-; Sistema de gestión de calificaciones en 8086
+; Sistema de gesti?n de calificaciones en 8086
 ; ================================================
 
 .model small  ; memoria, entra a un segmento
@@ -163,7 +163,7 @@ main proc
     push ds
     pop  es; ES=DS para rep movsb en ingreso
 
-; ---------- BUCLE PRINCIPAL DEL MENÚ ----------
+; ---------- BUCLE PRINCIPAL DEL MEN? ----------
 menu_principal:
     call ClearScreen;limpia si es 1
 
