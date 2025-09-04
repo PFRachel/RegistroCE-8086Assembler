@@ -58,6 +58,15 @@ min100   dw 0
 apr_cnt  db 0
 rep_cnt  db 0
 
+; Variables adicionales para manejo de 5 decimales
+max_entera dw 0
+max_decimal dd 0
+min_entera dw 999
+min_decimal dd 0FFFFFFFFh
+sum_entera dw 0
+sum_decimal dd 0
+
+
 ; ---------- VARIABLES ----------
 opcion          db 0; (1..5 opcion del menu)
 student_count   db 0; (0..15 cant registros en memoria)
