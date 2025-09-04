@@ -61,7 +61,17 @@ rep_cnt  db 0
 ; ---------- VARIABLES ----------
 opcion          db 0; (1..5 opcion del menu)
 student_count   db 0; (0..15 cant registros en memoria)
-id              db 0; (1..N indice solicitado)
+id              db 0; (1..N indice solicitado)  
+cID db ? ; indice del estudiante    
+index_estudiante DB MAX_STUDENTS dup(?)  ; Lista almacena indices de los estudiantes
+
+buffer2 db 16 dup(0)   ; buffer temporal para almacenar la cadena de la nota
+                                  
+; variables temporales que almacena nota (entera y decimal)
+nota1_l dw 0 ; entera Num1
+nota1_h dw 0 ; decimal Num1
+nota2_l dw 0 ; entera Num2
+nota2_h dw 0 ; decimal Num2
 
 ; ---------- ALMACENAMIENTO en memoria ----------
 ; 15 * 64 bytes: cada registro es la linea completa ingresada
@@ -240,13 +250,15 @@ buscar_estudiante:
     call MostrarPorIndice; imprime el registro con AH=09
     jmp menu_principal
 
-ordenar_calificaciones:
+ordenar_calificaciones: 
+    call SyncCountFromRecords
     call MensajeOrden;(0rdenamiento.asm)
-    call InputsOrden
-    jmp menu_principal 
-     
 mostrar_estadisticas:
-    call MostrarEstadisticas
+    call MostrarEstadistica
+    call InputsOrden 
+    call Burbuja 
+    call MostrarNombresOrdenados
+    call MostrarIndicesOrden
     jmp menu_principal
 ; ---------- SALIDA ----------
 salir_programa:

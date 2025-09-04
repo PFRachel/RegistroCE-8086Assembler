@@ -44,7 +44,7 @@ El sistema presenta un **menú principal interactivo** con las siguientes opcion
 ## ⚙️ Requisitos Técnicos  
 
 - Lenguaje: **Ensamblador 8086**.  
-- Compilador utilizado: **Emu8086**  
+- Compilador recomendado: **MASM** o **TASM** en DOSBox.  
 - Uso de subrutinas con `CALL` y `RET`.  
 - Uso de ciclos (`LOOP`), comparaciones (`CMP`, `Jxx`).  
 - Manejo de entrada/salida con **INT 21h** y control de pantalla con **INT 10h**.  

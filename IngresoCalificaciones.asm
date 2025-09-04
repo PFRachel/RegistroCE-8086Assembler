@@ -114,18 +114,87 @@ MaybeDot:
     mov bh, 1
     inc si
     jmp ValidateLast
-
 LastDone:
     ; Debe haber al menos 1 digito
     cmp bl, 1
     jb  BadInput
-    ; No permitir que termine en '.'
-    mov di, si
-    dec di
-    mov al, BYTE PTR [di]
+
+    ; No permitir que termine en '.' o ','
+    ; SI (de ValidateLast) quedó apuntando al final del token -> usar BX temporal
+    mov bx, si
+    dec bx
+    mov al, [bx]
     cmp al, '.'
     je  BadInput
+    cmp al, ','
+    je  BadInput
 
+    ; --- Parsear la PARTE ENTERA desde DI (inicio del último token) ---
+    mov si, di        ; SI = inicio del último token (DI fue fijado en ScanTokens)
+    xor ax, ax        ; AX = acumulador de la parte entera
+
+ParseIntLoop:
+    cmp si, bp
+    jae AfterInt
+    mov dl, [si]
+    cmp dl, ' '
+    je  AfterInt
+    cmp dl, '.'
+    je  AfterInt
+    cmp dl, ','
+    je  AfterInt
+
+    ; convertir caracter -> 0..9
+    sub dl, '0'
+    jb  BadInput
+    cmp dl, 9
+    ja  BadInput
+
+    ; AX = AX*10 + DL  (multiplicar por 10 con shift-add, luego sumar DL)
+    mov cx, ax
+    shl ax, 1
+    shl cx, 3
+    add ax, cx
+    xor dh, dh        ; asegurar DH = 0
+    add ax, dx        ; sumar DL (está en DL, DX alto=DH=0)
+
+    cmp ax, 100
+    ja  BadInput       ; si la parte entera ya >100 -> inválido
+
+    inc si
+    jmp ParseIntLoop
+
+AfterInt:
+    ; Si la parte entera < 100, está OK (cualquier decimal es <100)
+    cmp ax, 100
+    jb  AcceptNumber
+
+    ; AX == 100 -> aceptar solo si NO hay decimales o si TODOS los decimales son '0'
+    cmp si, bp
+    jae AcceptNumber    ; llegó al final -> no decimales -> OK
+    mov dl, [si]
+    cmp dl, '.'
+    je  CheckFrac
+    cmp dl, ','
+    je  CheckFrac
+    ; si aquí hay algo distinto (espacio por ejemplo), OK
+    jmp AcceptNumber
+
+CheckFrac:
+    inc si              ; pasar al primer dígito decimal
+
+CheckFracLoop:
+    cmp si, bp
+    jae AcceptNumber
+    mov dl, [si]
+    cmp dl, ' '
+    je  AcceptNumber
+    cmp dl, '0'
+    jne BadInput        ; si algún decimal != '0' => >100 => inválido
+    inc si
+    jmp CheckFracLoop
+
+AcceptNumber:
     ; --- Sincroniza contador, por seguridad ---
     call SyncCountFromRecords
 
@@ -133,7 +202,15 @@ LastDone:
     mov di, offset records
     mov cx, MAX_STUDENTS
     xor bx, bx                   ; BX = indice de slot (0..14)
+    
+IntDone:
+    ; --- Sincroniza contador, por seguridad ---
+    call SyncCountFromRecords
 
+    ; === Detectar primer slot libre (llenamos huecos si los hubiera) ===
+    mov di, offset records
+    mov cx, MAX_STUDENTS
+    xor bx, bx
 FindFree:
     mov al, [di]
     cmp al, '$'
