@@ -262,12 +262,13 @@ buscar_estudiante:
 ordenar_calificaciones: 
     call SyncCountFromRecords
     call MensajeOrden;(0rdenamiento.asm)
-mostrar_estadisticas:
-    call MostrarEstadistica
     call InputsOrden 
     call Burbuja 
     call MostrarNombresOrdenados
     call MostrarIndicesOrden
+    jmp menu_principal 
+mostrar_estadisticas:
+    call MostrarEstadisticas 
     jmp menu_principal
 ; ---------- SALIDA ----------
 salir_programa:
