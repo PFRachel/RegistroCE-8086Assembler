@@ -24,25 +24,25 @@ GetNotaFromRecords PROC
 
     ; calcular direccion del registro
     MOV AL, cID
-    DEC AL              ; cID base 1 a base 0 
-    XOR AH, AH          ; limpiar AH
+    DEC AL              ; cID base 1 a base 0
+    XOR AH, AH          ; Limpiar AH
     MOV BX, SLOT_LEN
-    MUL BX              ; AX = indice * SLOT_LEN
+    MUL BX              ; AX = índice * SLOT_LEN
     MOV SI, offset records
     ADD SI, AX             
 
-    ; buscar el ultimo espacio
+    ; Buscar el último espacio
     MOV DI, SI          
     MOV CX, SLOT_LEN
-    MOV BX, SI          ; inicializar BX con SI (inicio del registro)
+    MOV BX, SI          ; Inicializar BX con SI (inicio del registro)
 
 FindLastSpace:
     CMP BYTE PTR [DI], '$'
     JE FoundEnd
     CMP BYTE PTR [DI], ' '
     JNE NotSpace
-    MOV BX, DI          ; guardar posicion del espacio
-    INC BX              ; BX apunta al numero despues del espacio
+    MOV BX, DI          ; Guardar posición del espacio
+    INC BX              ; BX apunta al carácter después del espacio
 
 NotSpace:
     INC DI
@@ -51,8 +51,8 @@ NotSpace:
 FoundEnd:
     ; BX apunta al inicio de la nota
     MOV DI, BX
-    XOR AX, AX          ; parte entera
-    XOR DX, DX          ; parte decimal
+    XOR AX, AX          ; Parte entera
+    XOR DX, DX          ; Parte decimal
 
 ParseInt:
     MOV BL, [DI]
@@ -75,10 +75,12 @@ ParseInt:
     JMP ParseInt
     
 ParseDecimal:
-    INC DI              ; saltar el '.'
-    MOV BX, 10000       ; factor para hasta 5 decimales 
-
-ParseFrac:
+    INC DI              ; Saltar el '.'
+    MOV BX, 10000       ; Factor para hasta 5 decimales (10000, 1000, 100, 10, 1)
+    MOV CH, 0  
+ParseFrac:    
+    CMP CH, 5           ; ¿Ya procesamos 5 dígitos?
+    JAE Done  
     MOV CL, [DI]
     CMP CL, '$'
     JE Done
@@ -86,9 +88,6 @@ ParseFrac:
     JB Done  
     CMP CL, '9'
     JA Done
-
-    CMP BX, 0           ; si factor = 0, terminar
-    JE ParseFracNext
 
     SUB CL, '0'
     ; DX = DX + (dígito * factor)
@@ -109,8 +108,8 @@ ParseFrac:
     MOV BX, AX
     POP DX
     POP AX
-
-ParseFracNext:
+    
+    INC CH
     INC DI
     JMP ParseFrac
 
@@ -131,43 +130,43 @@ Burbuja PROC
     PUSH SI
     PUSH DI
     
-    ; inicializar arreglo de indices
+    ; Inicializar arreglo de índices
     MOV CL, [student_count]    
     MOV CH, 0
     XOR SI, SI
-    MOV AL, 1               ; contador para los indices (empeza en 1)
+    MOV AL, 1               ; Contador para los índices (empezar en 1)
 
 InitLoop:  
     MOV [index_estudiante + SI], AL
-    INC AL                  ; siguiente indice
-    INC SI                  ; siguiente posicion en el array
+    INC AL                  ; Siguiente índice
+    INC SI                  ; Siguiente posición en el array
     CMP SI, CX
     JL InitLoop
 
 CICLO1: 
     XOR BH, BH          ; BH = bandera de intercambio
-    XOR SI, SI          ; SI = indice para recorrer el arreglo
+    XOR SI, SI          ; SI = índice para recorrer el arreglo
     
     MOV CL, [student_count]
-    DEC CL              ; numero de comparaciones = n-1
+    DEC CL              ; Número de comparaciones = n-1
     MOV BL, CL          ; BL = contador de comparaciones
 
 CICLO2:          
-    ; obtener nota 1
+    ; Obtener nota 1
     MOV AL, [index_estudiante + SI]
     MOV cID, AL
     CALL GetNotaFromRecords 
     MOV [nota1_l], AX
     MOV [nota1_h], DX 
 
-    ; obtener nota 2 
+    ; Obtener nota 2 
     MOV AL, [index_estudiante + SI + 1]
     MOV cID, AL
     CALL GetNotaFromRecords 
     MOV [nota2_l], AX
     MOV [nota2_h], DX  
 
-    ; comparar parte entera primero
+    ; Comparar parte entera primero
     MOV AX, [nota1_l]
     CMP AX, [nota2_l]
     JA mayor1
@@ -179,25 +178,25 @@ CICLO2:
     JA mayor1
     JB menor1 
 
-    JMP skip   ; son iguales
+    JMP skip   ; Son completamente iguales
     
 mayor1:
-    CMP op, 2           ; orden descendente
+    CMP op, 1           ; ¿Orden descendente?
     JE Intercambio 
     JMP skip       
 
 menor1:          
-    CMP op, 1           ; orden ascendente
+    CMP op, 2           ; ¿Orden ascendente?
     JE Intercambio 
     JMP skip          
             
 Intercambio:  
-    ; intercambiar los indices
+    ; Intercambiar los índices
     MOV AL, [index_estudiante + SI] 
     MOV AH, [index_estudiante + SI + 1]
     MOV [index_estudiante + SI], AH
     MOV [index_estudiante + SI + 1], AL           
-    MOV BH, 1           ; hubo intercambio
+    MOV BH, 1           ; Marcar que hubo intercambio
 
 skip:
     INC SI   
