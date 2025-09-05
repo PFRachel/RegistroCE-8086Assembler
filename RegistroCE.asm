@@ -234,7 +234,7 @@ buscar_estudiante:
     jmp menu_principal
 
 ordenar_calificaciones: 
-    call SyncCountFromRecords
+    call SyncCountFromRecords  
     call MensajeOrden;(0rdenamiento.asm)
     call InputsOrden 
     call Burbuja 

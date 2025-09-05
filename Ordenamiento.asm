@@ -1,216 +1,219 @@
 ; ================================================
 ; Ordenamiento.asm 
-; Ascendente/Descendente 
+; Ascendente/Descendente                       
+; Referencia: La Ruta Dev (Youtube)
 ; ================================================ 
 
 ;===== SIMBOLOS EXTERNOS ======= 
 
 SLOT_LEN EQU 64      ; tamano de cada registro de estudiante
-MAX_STUDENTS EQU 15  ; maximo de estudiantes
-;===============================                    
+MAX_STUDENTS EQU 15  ; maximo de estudiantes                  
 
 ;========== VARIABLES===========  
 
-op db ? ; opción elegida por el usuario (1/2)
+op db ? ; opción elegida por el usuario (1/2)  
 
 ;===============================  
 
 ; obtener la nota del record
 GetNotaFromRecords PROC
-; inicializar los registros
-PUSH SI
-PUSH BX
-PUSH CX
-PUSH DI
+    PUSH SI
+    PUSH BX
+    PUSH CX
+    PUSH DI
 
-; calcular direccion del registro
-MOV AL, cID
-DEC AL          ; cID base 1 a base 0
-MOV BL, AL
-MOV AX, SLOT_LEN
-MOV CX, BX
-IMUL CX          
-MOV SI, offset records  ;SI apunta al inicio del registro del estudiante
-ADD SI, AX              
+    ; calcular direccion del registro
+    MOV AL, cID
+    DEC AL              ; cID base 1 a base 0 
+    XOR AH, AH          ; limpiar AH
+    MOV BX, SLOT_LEN
+    MUL BX              ; AX = indice * SLOT_LEN
+    MOV SI, offset records
+    ADD SI, AX             
 
-; copia de SI para buscar
-MOV DI, SI          
-MOV CX, SLOT_LEN
-XOR BX, BX                 ; posicion del ultimo espacio
+    ; buscar el ultimo espacio
+    MOV DI, SI          
+    MOV CX, SLOT_LEN
+    MOV BX, SI          ; inicializar BX con SI (inicio del registro)
+
 FindLastSpace:
-CMP BYTE PTR [DI], '$'
-JE FoundEnd
-CMP BYTE PTR [DI], ' '
-JNE NotSpace
-MOV BX, DI                 ; guardar posicion del ultimo espacio   
+    CMP BYTE PTR [DI], '$'
+    JE FoundEnd
+    CMP BYTE PTR [DI], ' '
+    JNE NotSpace
+    MOV BX, DI          ; guardar posicion del espacio
+    INC BX              ; BX apunta al numero despues del espacio
 
 NotSpace:
-INC DI
-LOOP FindLastSpace
+    INC DI
+    LOOP FindLastSpace
 
 FoundEnd:
-; DI apunta al ultimo espacio, la nota empieza despues
-INC BX
+    ; BX apunta al inicio de la nota
+    MOV DI, BX
+    XOR AX, AX          ; parte entera
+    XOR DX, DX          ; parte decimal
 
-; parsear parte entera (antes del punto)
-XOR AX, AX                ; AX = parte entera 
-MOV DI, BX
 ParseInt:
-MOV BL, [DI]
-CMP BL, '.'
-JE ParseDecimal
-CMP BL, '$'
-JE EndParse
-CMP BL, '0'
-JB EndParse
-CMP BL, '9'
-JA EndParse
+    MOV BL, [DI]
+    CMP BL, '.'
+    JE ParseDecimal
+    CMP BL, '$'
+    JE Done
+    CMP BL, '0'
+    JB Done
+    CMP BL, '9'
+    JA Done
 
-SUB BL, '0'
-MOV BH, 0
-SHL AX, 1                 ; AX = AX * 10
-MOV CX, AX
-SHL AX, 2                 ; AX = AX * 4
-ADD AX, CX                ; AX = prev * 10
-ADD AX, BX
-INC DI
-JMP ParseInt
+    SUB BL, '0'
+    MOV BH, 0
+    ; AX = AX * 10 + BX
+    MOV CX, 10
+    MUL CX
+    ADD AX, BX
+    INC DI
+    JMP ParseInt
     
-    ; parsear parte decimal
 ParseDecimal:
-INC DI                    ; saltar el '.'
-XOR DX, DX                ; DX = parte decimal
-MOV CX, 5                 ; max 5 dígitos
-MOV BX, 1                 ; multiplica lugar del decimal
+    INC DI              ; saltar el '.'
+    MOV BX, 10000       ; factor para hasta 5 decimales 
 
 ParseFrac:
-CMP CX, 0
-JE EndParse
-MOV AL, [DI]
-CMP AL, '$'
-JE EndParse
-CMP AL, '0'
-JB EndParse
-CMP AL, '9'
-JA EndParse
+    MOV CL, [DI]
+    CMP CL, '$'
+    JE Done
+    CMP CL, '0'
+    JB Done  
+    CMP CL, '9'
+    JA Done
 
-SUB AL, '0'
-MOV AH, 0
-MUL BX
-ADD DX, AX
-MOV AX, BX
-MOV BX, 10
-MUL BX
-MOV BX, AX
+    CMP BX, 0           ; si factor = 0, terminar
+    JE ParseFracNext
 
-INC DI
-DEC CX
-JMP ParseFrac
+    SUB CL, '0'
+    ; DX = DX + (dígito * factor)
+    PUSH AX
+    MOV AL, CL
+    XOR AH, AH
+    MUL BX
+    ADD DX, AX
+    POP AX
+    
+    ; factor = factor / 10
+    PUSH AX
+    PUSH DX
+    MOV AX, BX
+    MOV BX, 10
+    XOR DX, DX
+    DIV BX
+    MOV BX, AX
+    POP DX
+    POP AX
 
-EndParse:
-POP DI
-POP CX
-POP BX
-POP SI
-RET
+ParseFracNext:
+    INC DI
+    JMP ParseFrac
+
+Done:
+    POP DI
+    POP CX
+    POP BX
+    POP SI
+    RET
 GetNotaFromRecords ENDP
            
 ;======== ALGORITMO BURBUJA ==========  
 Burbuja PROC 
-;guardar registros de uso
-PUSH AX   
-PUSH BX
-PUSH CX
-PUSH DX
-PUSH SI
-PUSH DI
-
-;iniciar indices de los estudiantes 
-MOV CL, [student_count]
-MOV CH, 0
-XOR SI, SI 
-MOV AL, 1 
-      
-;inicializar arreglo index_estudiante 
-InitLoop:                      
-MOV AX, SI
-MOV AL, AL             
-MOV [index_estudiante + SI], AL
-INC SI
-CMP SI, CX
-JL InitLoop
-MOV CL, [student_count]
-DEC CL   
-XOR CH, CH      
+    PUSH AX   
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    PUSH SI
+    PUSH DI
     
-CICLO1:
-XOR SI, SI     ; recorre index_estudiante desde 0
-MOV BL, CL     ; comparaciones pasadas
-      
-CICLO2:  
-         
-; obtener nota 1
-MOV AL, [index_estudiante + SI]   
-MOV cID, AL
-CALL GetNotaFromRecords
-MOV [nota1_l], ax
-MOV [nota1_h], dx
-   
-; obtener nota 2 
-MOV AL, [index_estudiante + SI + 1]
-MOV cID, AL
-CALL GetNotaFromRecords
-MOV [nota2_l], AX
-MOV [nota2_h], DX  
+    ; inicializar arreglo de indices
+    MOV CL, [student_count]    
+    MOV CH, 0
+    XOR SI, SI
+    MOV AL, 1               ; contador para los indices (empeza en 1)
 
-; comparar entera                                                                   
-MOV AX, [nota1_l]
-CMP AX, [nota2_l]
-JA mayor1
-JB menor1
+InitLoop:  
+    MOV [index_estudiante + SI], AL
+    INC AL                  ; siguiente indice
+    INC SI                  ; siguiente posicion en el array
+    CMP SI, CX
+    JL InitLoop
 
-; comparar decimal
-MOV AX, [nota1_h]
-CMP AX, [nota2_h]
-JA mayor1
-JB menor1 
+CICLO1: 
+    XOR BH, BH          ; BH = bandera de intercambio
+    XOR SI, SI          ; SI = indice para recorrer el arreglo
+    
+    MOV CL, [student_count]
+    DEC CL              ; numero de comparaciones = n-1
+    MOV BL, CL          ; BL = contador de comparaciones
 
+CICLO2:          
+    ; obtener nota 1
+    MOV AL, [index_estudiante + SI]
+    MOV cID, AL
+    CALL GetNotaFromRecords 
+    MOV [nota1_l], AX
+    MOV [nota1_h], DX 
 
-JMP skip   ; iguales
+    ; obtener nota 2 
+    MOV AL, [index_estudiante + SI + 1]
+    MOV cID, AL
+    CALL GetNotaFromRecords 
+    MOV [nota2_l], AX
+    MOV [nota2_h], DX  
+
+    ; comparar parte entera primero
+    MOV AX, [nota1_l]
+    CMP AX, [nota2_l]
+    JA mayor1
+    JB menor1   
+
+    ; Si partes enteras son iguales, comparar decimales
+    MOV AX, [nota1_h]
+    CMP AX, [nota2_h]
+    JA mayor1
+    JB menor1 
+
+    JMP skip   ; son iguales
     
 mayor1:
-CMP op,1          ; 1 = ascendente => se quedan
-JE skip 
-jmp Intercambio    
+    CMP op, 2           ; orden descendente
+    JE Intercambio 
+    JMP skip       
 
-menor1:           ; 2 = decendente => se quedan
-CMP op,2
-JE  skip
-JMP Intercambio         
-
+menor1:          
+    CMP op, 1           ; orden ascendente
+    JE Intercambio 
+    JMP skip          
+            
 Intercambio:  
-; intercambiar los indices
-MOV AL, [index_estudiante + SI] 
-MOV AH, [index_estudiante + SI+ 1]
-MOV [index_estudiante + SI], AH
-MOV [index_estudiante + SI+ 1], AL
+    ; intercambiar los indices
+    MOV AL, [index_estudiante + SI] 
+    MOV AH, [index_estudiante + SI + 1]
+    MOV [index_estudiante + SI], AH
+    MOV [index_estudiante + SI + 1], AL           
+    MOV BH, 1           ; hubo intercambio
 
 skip:
-INC SI
-DEC BL
-JNZ CICLO2 
-DEC CL
-JNZ CICLO1 
+    INC SI   
+    DEC BL
+    JNZ CICLO2 
 
-POP DI
-POP SI
-POP DX
-POP CX
-POP BX
-POP AX
+    CMP BH, 1 
+    JE CICLO1  
 
-RET  
-
+    POP DI
+    POP SI
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET  
 Burbuja ENDP                                                          
 
 MensajeOrden PROC 
@@ -226,20 +229,16 @@ MensajeOrden PROC
     mov ah, 9
     int 21h
     ret    
-    
 MensajeOrden ENDP  
 
 InputsOrden PROC 
 ReadAgain:
-    ; Mostrar prompt otra vez si hace falta
     mov ah, 1       ; leer una tecla
     int 21h
 
-    ; convertir ASCII a número
-    sub al, '0'
+    sub al, '0'     ; convertir ASCII a número
 
-    ; validar si es 1 o 2
-    cmp al, 1
+    cmp al, 1       ; validar si es 1 o 2
     je Valid
     cmp al, 2
     je Valid
@@ -249,8 +248,7 @@ ReadAgain:
     mov ah, 9
     int 21h
 
-    ; CRLF
-    mov ah, 2
+    mov ah, 2       ; CRLF
     mov dl, 13
     int 21h
     mov dl, 10
@@ -261,15 +259,12 @@ ReadAgain:
 Valid:
     mov op, al
 
-    ; salto de línea final
-    mov ah, 2
+    mov ah, 2       ; salto de línea final
     mov dl, 13
     int 21h
     mov dl, 10
     int 21h  
-    RET               
-                               
-                                  
+    RET                                               
 InputsOrden ENDP    
 
 MostrarNombresOrdenados PROC
@@ -284,7 +279,6 @@ MostrarNombresOrdenados PROC
 
 MostrarNombresLoop:
     MOV AL, [index_estudiante + SI]  ; obtener indice de estudiante ordenado
-    INC AL
     MOV id, AL                       
     CALL MostrarPorIndice            ; reutiliza funcion, para print
 
@@ -298,7 +292,6 @@ MostrarNombresLoop:
     POP AX
     RET
 MostrarNombresOrdenados ENDP   
-
 
 ;======== DEBUGG===============
 MostrarIndicesOrden PROC
@@ -321,6 +314,6 @@ MostrarLoop:
     INT 21h
     MOV DL,10
     INT 21h
-    POP SI
+    POP SI  
     RET
 MostrarIndicesOrden ENDP
