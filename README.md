@@ -1,4 +1,4 @@
-# RegistroCE  Tarea 1 de Paradigmas de Programación  (CE 2103)
+# RegistroCE  Tarea 1 de Paradigmas de Programación  (CE 1106)
 
 ## 🎯 Objetivos del Proyecto  
 
