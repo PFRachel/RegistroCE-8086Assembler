@@ -71,7 +71,10 @@ buffer2 db 16 dup(0)   ; buffer temporal para almacenar la cadena de la nota
 nota1_l dw 0 ; entera Num1
 nota1_h dw 0 ; decimal Num1
 nota2_l dw 0 ; entera Num2
-nota2_h dw 0 ; decimal Num2
+nota2_h dw 0 ; decimal Num2   
+notas_l dw MAX_STUDENTS dup(?) ; parte entera
+notas_h dw MAX_STUDENTS dup(?) ; parte decimal   
+
 
 ; ---------- ALMACENAMIENTO en memoria ----------
 ; 15 * 64 bytes: cada registro es la linea completa ingresada
@@ -256,7 +259,6 @@ ordenar_calificaciones:
     call InputsOrden 
     call Burbuja 
     call MostrarNombresOrdenados
-    call MostrarIndicesOrden  
     jmp menu_principal
 mostrar_estadisticas:
     call MostrarEstadisticas

@@ -27,14 +27,14 @@ GetNotaFromRecords PROC
     DEC AL              ; cID base 1 a base 0
     XOR AH, AH          ; Limpiar AH
     MOV BX, SLOT_LEN
-    MUL BX              ; AX = índice * SLOT_LEN
+    MUL BX              ; AX = indice * SLOT_LEN
     MOV SI, offset records
     ADD SI, AX             
 
-    ; Buscar el último espacio
+    ; buscar el ultimo espacio
     MOV DI, SI          
     MOV CX, SLOT_LEN
-    MOV BX, SI          ; Inicializar BX con SI (inicio del registro)
+    MOV BX, SI          ; Inicializar BX con SI 
 
 FindLastSpace:
     CMP BYTE PTR [DI], '$'
@@ -59,7 +59,9 @@ ParseInt:
     CMP BL, '.'
     JE ParseDecimal
     CMP BL, '$'
-    JE Done
+    JE Done 
+    CMP BL, ' '
+    JB Done
     CMP BL, '0'
     JB Done
     CMP BL, '9'
@@ -67,22 +69,26 @@ ParseInt:
 
     SUB BL, '0'
     MOV BH, 0
-    ; AX = AX * 10 + BX
+    ; AX = AX * 10 + BX 
+    PUSH DX
     MOV CX, 10
-    MUL CX
-    ADD AX, BX
+    MUL CX 
+    ADD AX, BX 
+    POP DX
     INC DI
     JMP ParseInt
     
 ParseDecimal:
     INC DI              ; Saltar el '.'
-    MOV BX, 10000       ; Factor para hasta 5 decimales (10000, 1000, 100, 10, 1)
+    MOV BX, 10000       ; Factor para 5 decimales 
     MOV CH, 0  
 ParseFrac:    
-    CMP CH, 5           ; ¿Ya procesamos 5 dígitos?
+    CMP CH, 5           ; Ya proceso 5 dígitos
     JAE Done  
     MOV CL, [DI]
     CMP CL, '$'
+    JE Done 
+    CMP CL, ' '
     JE Done
     CMP CL, '0'
     JB Done  
@@ -130,19 +136,117 @@ Burbuja PROC
     PUSH SI
     PUSH DI
     
-    ; Inicializar arreglo de índices
+    ; validar rango
+    MOV AL, [student_count]
+    CMP AL, MAX_STUDENTS        ; Si excede el máximo
+    JA FinSort                  ; Salir 
+    
+    ; Verificar si hay al menos 2 estudiantes
+    CMP AL, 2
+    JB FinSort
+    
+    ; Inicializar arreglo de índices 
     MOV CL, [student_count]    
     MOV CH, 0
     XOR SI, SI
-    MOV AL, 1               ; Contador para los índices (empezar en 1)
+    MOV AL, 1               ; Contador para los índices (empezar en 1) 
+    MOV DX, CX
 
 InitLoop:  
+    CMP SI, MAX_STUDENTS        ; Verificación de rango
+    JAE LimpiarCache           ; Si excede, ir a limpiar cache
+    
     MOV [index_estudiante + SI], AL
     INC AL                  ; Siguiente índice
     INC SI                  ; Siguiente posición en el array
-    CMP SI, CX
-    JL InitLoop
+    CMP SI, DX
+    JL InitLoop  
 
+LimpiarCache:
+    XOR SI, SI              ; Resetear SI a 0
+    MOV CX, MAX_STUDENTS    ;  limpiar 
+    
+LimpiarLoop:
+    CMP SI, MAX_STUDENTS    ; Si SI >= 15
+    JAE PrecalcularNotas    ; Salir 
+    
+    MOV BX, SI
+    SHL BX, 1               ; BX = SI * 2
+    
+    ; verificar rango
+    CMP BX, MAX_STUDENTS * 2    ; Si BX >= 30 
+    JAE SiguienteLimpieza      
+    
+    MOV [notas_l + BX], 0
+    MOV [notas_h + BX], 0
+
+SiguienteLimpieza:
+    INC SI
+    LOOP LimpiarLoop        ; LOOP decrementa CX 
+    
+    ; calcular notas para cada estudiante 
+    XOR SI, SI              
+    MOV CL, [student_count]
+    MOV CH, 0               
+    
+
+PrecalcularNotas: 
+    
+    CMP SI, MAX_STUDENTS    ; Si SI >= 15
+    JAE CICLO1              ; Ir directamente al ordenamiento
+    
+    CMP SI, CX              ; Si SI >= student_count
+    JAE CICLO1              ; También salir
+    
+    MOV AL, [index_estudiante + SI]  ; Obtener ID
+    
+    CMP AL, 1
+    JB SiguienteEstudiante
+    CMP AL, MAX_STUDENTS
+    JA SiguienteEstudiante
+    
+    PUSH AX                 ; Guardar el ID original en el stack
+    
+    MOV cID, AL
+    CALL GetNotaFromRecords ; AX = parte entera, DX = parte decimal
+    
+    ; obtener id orginal
+    POP BX                  ; BX ahora contiene el ID original
+    PUSH AX                 ; parte entera
+    PUSH DX                 ; parte decimal
+    
+    MOV AL, BL              
+    DEC AL                  ; Convertir a 0-based (ID-1)
+    XOR AH, AH              ; AX = ID - 1
+    MOV BX, AX              ; BX = ID - 1
+    
+    CMP BX, MAX_STUDENTS    ; Si BX >= 15
+    JAE RestaurarStack      ; Saltar este estudiante y limpiar stack
+    
+    SHL BX, 1               ; BX = (ID-1) * 2
+    
+    CMP BX, MAX_STUDENTS * 2    ; Si BX >= 30
+    JAE RestaurarStack          ; Saltar este estudiante y limpiar stack
+    
+ 
+    POP DX                  ; Restaurar parte decimal
+    POP AX                  ; Restaurar parte entera
+    
+    MOV [notas_l + BX], AX  ; Guardar parte entera
+    MOV [notas_h + BX], DX  ; Guardar parte decimal
+    JMP SiguienteEstudiante
+
+RestaurarStack:
+    ; Limpiar el stack si hubo error
+    POP DX                  ; Descartar parte decimal
+    POP AX                  ; Descartar parte entera
+
+SiguienteEstudiante:
+    INC SI
+    CMP SI, CX              ; Usar CX en lugar de comparación directa
+    JL PrecalcularNotas
+
+    ; Algoritmo de ordenamiento - solo intercambiar índices
 CICLO1: 
     XOR BH, BH          ; BH = bandera de intercambio
     XOR SI, SI          ; SI = índice para recorrer el arreglo
@@ -151,20 +255,58 @@ CICLO1:
     DEC CL              ; Número de comparaciones = n-1
     MOV BL, CL          ; BL = contador de comparaciones
 
-CICLO2:          
-    ; Obtener nota 1
-    MOV AL, [index_estudiante + SI]
-    MOV cID, AL
-    CALL GetNotaFromRecords 
+CICLO2:  
+CMP SI, MAX_STUDENTS - 1    ; Verificar que SI+1 no exceda
+    JAE skip          
+    MOV AL, [index_estudiante + SI]  ; ID del estudiante
+    
+    ; validar id
+    CMP AL, 1
+    JB skip                 ; Si ID < 1, saltar
+    CMP AL, MAX_STUDENTS    
+    JA skip                 ; Si ID > 15, saltar
+    
+    DEC AL                  ; Convertir a 0-based
+    XOR AH, AH
+    MOV DI, AX
+    
+    CMP DI, MAX_STUDENTS
+    JAE skip
+    
+    SHL DI, 1               ; DI = (ID-1) * 2
+                                          
+    CMP DI, MAX_STUDENTS * 2
+    JAE skip
+    
+    MOV AX, [notas_l + DI]  ; Parte entera
+    MOV DX, [notas_h + DI]  ; Parte decimal
     MOV [nota1_l], AX
     MOV [nota1_h], DX 
 
-    ; Obtener nota 2 
-    MOV AL, [index_estudiante + SI + 1]
-    MOV cID, AL
-    CALL GetNotaFromRecords 
+    ; Nota2
+    MOV AL, [index_estudiante + SI + 1]  ; ID del estudiante
+    
+    CMP AL, 1
+    JB skip                 ; Si ID < 1, saltar
+    CMP AL, MAX_STUDENTS    
+    JA skip                 ; Si ID > 15, saltar
+    
+    DEC AL                  ; Convertir a 0-based
+    XOR AH, AH
+    MOV DI, AX
+    
+    CMP DI, MAX_STUDENTS
+    JAE skip
+    
+    SHL DI, 1               ; DI = (ID-1) * 2
+    
+    CMP DI, MAX_STUDENTS * 2
+    JAE skip
+    
+    MOV AX, [notas_l + DI]  ; Parte entera  
+    MOV DX, [notas_h + DI]  ; Parte decimal
     MOV [nota2_l], AX
-    MOV [nota2_h], DX  
+    MOV [nota2_h], DX
 
     ; Comparar parte entera primero
     MOV AX, [nota1_l]
@@ -191,12 +333,12 @@ menor1:
     JMP skip          
             
 Intercambio:  
-    ; Intercambiar los índices
-    MOV AL, [index_estudiante + SI] 
-    MOV AH, [index_estudiante + SI + 1]
-    MOV [index_estudiante + SI], AH
-    MOV [index_estudiante + SI + 1], AL           
-    MOV BH, 1           ; Marcar que hubo intercambio
+    ; Solo intercambiar los índices (simple y eficiente)
+    MOV AL, [index_estudiante + SI]
+    MOV CL, [index_estudiante + SI + 1]
+    MOV [index_estudiante + SI], CL
+    MOV [index_estudiante + SI + 1], AL
+    MOV BH, 1                   ; Marcar que hubo intercambio
 
 skip:
     INC SI   
@@ -206,6 +348,7 @@ skip:
     CMP BH, 1 
     JE CICLO1  
 
+FinSort:
     POP DI
     POP SI
     POP DX
@@ -213,9 +356,23 @@ skip:
     POP BX
     POP AX
     RET  
-Burbuja ENDP                                                          
+Burbuja ENDP
 
-MensajeOrden PROC 
+MensajeOrden PROC  
+    ; Verificar si hay estudiantes cargados
+    mov al, [student_count]
+    cmp al, 0
+    jne ContinuarOrden  
+    
+    ; Mostrar mensaje de error si no hay registros
+    mov dx, offset msjnoreg
+    mov ah, 9
+    int 21h
+    call PrintCRLF 
+    jmp menu_principal   
+    ret
+    
+ContinuarOrden:
     mov dx, offset msjorden
     mov ah, 9
     int 21h 
@@ -227,7 +384,7 @@ MensajeOrden PROC
     mov dx, offset orden2
     mov ah, 9
     int 21h
-    ret    
+    ret        
 MensajeOrden ENDP  
 
 InputsOrden PROC 
@@ -256,7 +413,7 @@ ReadAgain:
     jmp ReadAgain
 
 Valid:
-    mov op, al
+    mov op, al      ; Guardar la opción seleccionada
 
     mov ah, 2       ; salto de línea final
     mov dl, 13
@@ -275,15 +432,21 @@ MostrarNombresOrdenados PROC
 
     XOR SI, SI
     MOV CL, [student_count]
+    MOV CH, 0
 
 MostrarNombresLoop:
+    CMP CX, 0
+    JE FinMostrar
+    
     MOV AL, [index_estudiante + SI]  ; obtener indice de estudiante ordenado
     MOV id, AL                       
     CALL MostrarPorIndice            ; reutiliza funcion, para print
 
     INC SI
-    LOOP MostrarNombresLoop
+    DEC CX
+    JMP MostrarNombresLoop
 
+FinMostrar:
     POP SI
     POP DX
     POP CX
@@ -291,28 +454,3 @@ MostrarNombresLoop:
     POP AX
     RET
 MostrarNombresOrdenados ENDP   
-
-;======== DEBUGG===============
-MostrarIndicesOrden PROC
-    PUSH SI
-    XOR SI, SI
-    MOV CL, [student_count]
-MostrarLoop:
-    MOV AL,[index_estudiante + SI]
-    ADD AL,'0'
-    MOV DL,AL
-    MOV AH,2
-    INT 21h
-    MOV DL,' '
-    INT 21h
-    INC SI
-    LOOP MostrarLoop
-    ; salto de línea
-    MOV AH,2
-    MOV DL,13
-    INT 21h
-    MOV DL,10
-    INT 21h
-    POP SI  
-    RET
-MostrarIndicesOrden ENDP

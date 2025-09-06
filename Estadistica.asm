@@ -7,6 +7,358 @@
 ; =========================================================
 ; Procedimiento principal: MostrarEstadisticas
 ; =========================================================
+
+ExtractValue100000 PROC
+    push bx
+    push cx
+    push si
+    push di
+    push bp
+
+    ; 1) Buscar '$' dentro de los 64 bytes
+    mov di, si
+    mov cx, 64
+E5_find_dollar:
+    cmp BYTE PTR [di], '$'
+    je  E5_dollar_found
+    inc di
+    loop E5_find_dollar
+    xor ax, ax
+    xor dx, dx
+    jmp E5_out
+
+E5_dollar_found:
+    ; 2) Retroceder espacios
+    dec di
+E5_skip_spaces:
+    cmp di, si
+    jb  E5_zero
+    cmp BYTE PTR [di], ' '
+    jne E5_have_tail
+    dec di
+    jmp E5_skip_spaces
+
+E5_have_tail:
+    ; 3) Hallar inicio del ultimo token
+    mov bp, di                 ; BP = fin inclusive
+E5_find_start:
+    cmp di, si
+    je  E5_start_ok
+    dec di
+    cmp BYTE PTR [di], ' '
+    jne E5_find_start
+    inc di
+E5_start_ok:
+
+    ; 4) Parsear con precisión de 32-bit
+    xor ax, ax                 ; Parte baja del acumulador
+    xor dx, dx                 ; Parte alta del acumulador
+    xor bx, bx                 ; BH=vistoPunto, BL=decimalesContados
+
+E5_parse:
+    cmp di, bp
+    ja  E5_finalize
+    push dx                    ; Guardar parte alta
+    mov dl, [di]
+
+    ; si es punto
+    cmp dl, '.'
+    jne E5_check_digit
+    mov bh, 1
+    pop dx
+    jmp E5_next
+
+E5_check_digit:
+    cmp dl, '0'
+    jb  E5_invalid_digit
+    cmp dl, '9'
+    ja  E5_invalid_digit
+    sub dl, '0'                ; DL = 0..9
+
+    ; Contar decimales (máximo 5)
+    cmp bh, 0
+    je  E5_multiply
+    cmp bl, 5
+    jae E5_invalid_digit       ; Ignorar más de 5 decimales
+    inc bl
+
+E5_multiply:
+    ; DX:AX = DX:AX * 10 + DL (aritmética de 32-bit)
+    pop cx                     ; CX = parte alta anterior
+    
+    ; Multiplicar por 10 usando shifts y sumas
+    ; DX:AX * 10 = DX:AX * 8 + DX:AX * 2
+    
+    ; Guardar valor original
+    push ax                    ; Guardar AX original
+    push cx                    ; Guardar DX original
+    
+    ; AX * 2
+    shl ax, 1
+    rcl cx, 1                  ; Propagar carry a parte alta
+    
+    ; Guardar resultado *2
+    mov si, ax
+    mov di, cx
+    
+    ; Recuperar original para *8
+    pop cx
+    pop ax
+    
+    ; AX * 8 (shift 3 veces)
+    shl ax, 1
+    rcl cx, 1
+    shl ax, 1  
+    rcl cx, 1
+    shl ax, 1
+    rcl cx, 1
+    
+    ; Sumar: (original*8) + (original*2) = original*10
+    add ax, si
+    adc cx, di
+    
+    ; Sumar el dígito
+    xor dh, dh                 ; DH = 0, DL = dígito
+    add ax, dx
+    adc cx, 0
+    
+    mov dx, cx                 ; Restaurar DX
+    jmp E5_next
+
+E5_invalid_digit:
+    pop dx
+E5_next:
+    inc di
+    jmp E5_parse
+
+E5_finalize:
+    ; Escalar a *100000 según decimales encontrados
+    mov cl, 5                  ; Necesitamos 5 posiciones decimales
+    cmp bh, 0
+    je  E5_scale_all           ; Sin punto = escalar todas las 5 posiciones
+    
+    sub cl, bl                 ; cl = posiciones a escalar
+    
+E5_scale_loop:
+    test cl, cl
+    jz   E5_done
+    
+    ; DX:AX = DX:AX * 10
+    mov si, ax
+    mov di, dx
+    
+    ; AX * 10 = AX * 8 + AX * 2
+    shl ax, 1
+    rcl dx, 1                  ; *2
+    
+    push ax
+    push dx
+    
+    mov ax, si
+    mov dx, di
+    shl ax, 1
+    rcl dx, 1
+    shl ax, 1
+    rcl dx, 1  
+    shl ax, 1
+    rcl dx, 1                  ; *8
+    
+    pop di
+    pop si
+    add ax, si
+    adc dx, di                 ; *10
+    
+    dec cl
+    jmp E5_scale_loop
+
+E5_scale_all:
+    ; Multiplicar por 100000 = 10^5
+    mov cl, 5
+    jmp E5_scale_loop
+
+E5_done:
+    jmp E5_out
+
+E5_zero:
+    xor ax, ax
+    xor dx, dx
+
+E5_out:
+    pop bp
+    pop di
+    pop si
+    pop cx
+    pop bx
+    ret
+ExtractValue100000 ENDP
+
+; =========================================================
+; PrintValue5Decimals - Imprime DX:AX (valor*100000) con 5 decimales
+; =========================================================
+PrintValue5Decimals PROC
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+
+    ; Dividir DX:AX por 100000 para separar entero de decimales
+    ; Como 100000 > 65535, usar división por etapas
+    
+    ; Primero dividir por 10000
+    mov bx, 10000
+    div bx                     ; AX = parte_entera, DX = resto
+    
+    ; Imprimir parte entera
+    push dx                    ; Guardar resto para decimales
+    call PrintWordDec
+    
+    ; Verificar si hay decimales
+    pop ax                     ; AX = resto (0-99999)
+    test ax, ax
+    jz   P5D_no_decimals
+    
+    ; Imprimir punto
+    mov ah, 2
+    mov dl, '.'
+    int 21h
+    
+    ; Imprimir exactamente 5 decimales
+    call Print5DigitsFixed
+    jmp P5D_done
+
+P5D_no_decimals:
+P5D_done:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+PrintValue5Decimals ENDP
+
+; =========================================================
+; Print5DigitsFixed - Imprime AX (0-99999) como exactamente 5 dígitos
+; =========================================================
+Print5DigitsFixed PROC
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+
+    ; Construir los 5 dígitos en buffer
+    mov si, offset buffer2
+    add si, 4                  ; Empezar desde posición 4 (último dígito)
+    mov cx, 5                  ; Exactamente 5 dígitos
+
+P5F_build:
+    mov bx, 10
+    xor dx, dx
+    div bx                     ; AX = AX/10, DX = último dígito
+    add dl, '0'                ; Convertir a ASCII
+    mov [si], dl               ; Guardar dígito
+    dec si
+    loop P5F_build
+
+    ; Imprimir los 5 dígitos
+    mov si, offset buffer2
+    mov cx, 5
+
+P5F_print:
+    mov ah, 2
+    mov dl, [si]
+    int 21h
+    inc si
+    loop P5F_print
+
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+Print5DigitsFixed ENDP
+
+; =========================================================
+; VERSIÓN SIMPLIFICADA - ExtractValue mantiene compatibilidad 
+; pero internamente procesa 5 decimales
+; =========================================================
+ExtractValue100_With5Dec PROC
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp
+
+    ; Llamar al extractor de 5 decimales
+    call ExtractValue100000
+    
+    ; Convertir DX:AX (valor*100000) a AX (valor*100)
+    ; Dividir por 1000
+    mov bx, 1000
+    div bx                     ; AX = valor*100, DX = resto
+    
+    ; AX ahora contiene valor*100 compatible con tu sistema
+    
+    pop bp
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+ExtractValue100_With5Dec ENDP 
+
+PrintValue100 PROC
+    push ax
+    push bx 
+    push cx
+    push dx
+
+    mov bx, 100
+    xor dx, dx
+    div bx                      ; AX=entero, DX=decimales
+
+    ; Imprimir parte entera
+    push dx                     ; Guardar decimales
+    call PrintWordDec
+    
+    ; Imprimir punto
+    mov ah, 2
+    mov dl, '.'
+    int 21h
+    
+    ; Imprimir decimales con ceros a la izquierda
+    pop ax                      ; AX = decimales (0-99)
+    mov bl, 10  
+    xor ah, ah
+    div bl                      ; AL=decenas, AH=unidades 
+   
+    ; CORREGIDO: Imprimir AMBOS dígitos
+    ; Primero las decenas
+    mov dl, al                  ; AL = decenas
+    add dl, '0'
+    mov ah, 2
+    int 21h 
+    
+    ; Después las unidades  
+    mov dl, ah                  ; AH = unidades (de la división anterior)
+    add dl, '0'
+    mov ah, 2
+    int 21h
+    
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+PrintValue100 ENDP
+
+;--------------------------------------------------------------
 MostrarEstadisticas PROC
     push ax
     push bx
@@ -50,7 +402,7 @@ ms_scan:
 
     ; AX := nota*100
     push si
-    call ExtractValue100
+    call ExtractValue100_With5Dec 
     pop  si
 
     ; sum += AX  (DX:DI += AX)
@@ -326,9 +678,10 @@ ExtractValue100 ENDP
 ; =========================================================
 ; PrintValue100 — imprime AX (valor*100) como ddd.dd
 ; =========================================================
-PrintValue100 PROC
+lPrintValue100 PROC
     push ax
-    push bx
+    push bx 
+    push cx
     push dx
 
     mov bx, 100
@@ -345,27 +698,26 @@ PrintValue100 PROC
     int 21h
     
     ; Imprimir decimales con ceros a la izquierda
-    pop dx
-    mov al, dl
+    pop ax 
+    mov bl, 10  
     xor ah, ah
-    mov bl, 10
-    div bl                      ; AL=decenas, AH=unidades
+    div bl                      ; AL=decenas, AH=unidades 
+   
+    ; Guardar ambos resultados
+    mov cl, al                  ; CL = decenas
+    mov ch, ah                  ; CH = unidades
     
-    mov dl, al
+     mov dl, ch
     add dl, '0'
     mov ah, 2
-    int 21h
+    int 21h 
     
-    mov dl, ah
-    add dl, '0'
-    mov ah, 2
-    int 21h
-
     pop dx
+    pop cx
     pop bx
     pop ax
     ret
-PrintValue100 ENDP
+lPrintValue100 ENDP
 
 ; =========================================================
 ; PrintWordDec — imprime AX en decimal
