@@ -1,6 +1,6 @@
 ; ================================================
 ; RegistroCE.asm
-; Sistema de gestión de calificaciones en 8086
+; Sistema de gesti?n de calificaciones en 8086
 ; ================================================
 
 .model small  ; memoria, entra a un segmento
@@ -37,11 +37,52 @@ msjinv      db 13,10,"Indice invalido.",13,10,"$"
 msjincomp   db 13,10,"Dato incompleto o nota invalida. Formato: Nombre Apellido [Apellido2] Nota (hasta 5 decimales).",13,10,"$"
 msjcnt      db "Guardados: $"
 msjreg      db "Registros cargados: $"
+msjprom     db 13,10,'Promedio general: $'
+msjnoreg    db 13,10,'No hay registros cargados.$'
+
+; === Mensajes de Estadistica ===
+msj_est_tit    db 13,10,'=== Estadisticas ===',13,10,'$'
+msj_prom_lbl   db 'Promedio general: $'
+msj_max_lbl    db 'Nota maxima: $'
+msj_min_lbl    db 'Nota minima: $'
+msj_apr_lbl    db 'Aprobados: $'
+msj_rep_lbl    db 'Reprobados: $'
+msj_spc_pct    db ' (','$'
+msj_pct_close  db '%)',13,10,'$'
+
+; === Variables temporales de Estadistica ===
+tot_lo   dw 0
+tot_hi   dw 0
+max100   dw 0
+min100   dw 0
+apr_cnt  db 0
+rep_cnt  db 0 
+; Variables adicionales para manejo de 5 decimales
+max_entera dw 0
+max_decimal dd 0
+min_entera dw 999
+min_decimal dd 0FFFFFFFFh
+sum_entera dw 0
+sum_decimal dd 0
+
 
 ; ---------- VARIABLES ----------
 opcion          db 0; (1..5 opcion del menu)
 student_count   db 0; (0..15 cant registros en memoria)
-id              db 0; (1..N indice solicitado)
+id              db 0; (1..N indice solicitado)  
+cID db ? ; indice del estudiante    
+index_estudiante DB MAX_STUDENTS dup(?)  ; Lista almacena indices de los estudiantes
+
+buffer2 db 16 dup(0)   ; buffer temporal para almacenar la cadena de la nota
+                                  
+; variables temporales que almacena nota (entera y decimal)
+nota1_l dw 0 ; entera Num1
+nota1_h dw 0 ; decimal Num1
+nota2_l dw 0 ; entera Num2
+nota2_h dw 0 ; decimal Num2   
+notas_l dw MAX_STUDENTS dup(?) ; parte entera
+notas_h dw MAX_STUDENTS dup(?) ; parte decimal   
+
 
 ; ---------- ALMACENAMIENTO en memoria ----------
 ; 15 * 64 bytes: cada registro es la linea completa ingresada
@@ -143,7 +184,7 @@ main proc
     push ds
     pop  es; ES=DS para rep movsb en ingreso
 
-; ---------- BUCLE PRINCIPAL DEL MENÚ ----------
+; ---------- BUCLE PRINCIPAL DEL MEN? ----------
 menu_principal:
     call ClearScreen;limpia si es 1
 
@@ -215,19 +256,21 @@ ingresar_calificaciones:
     call InputsIngresar ; lee linea
     jmp menu_principal  ; vuelve menu
 
-mostrar_estadisticas:
-    jmp menu_principal
-
 buscar_estudiante:
     call MensajePos;pide un indice
     call MostrarPorIndice; imprime el registro con AH=09
     jmp menu_principal
 
-ordenar_calificaciones:
-    call MensajeOrden;(0rdenamiento.asm)
-    call InputsOrden
+ordenar_calificaciones: 
+    call SyncCountFromRecords  
+    call MensajeOrden;(0rdenamiento.asm)  
+    call InputsOrden 
+    call Burbuja 
+    call MostrarNombresOrdenados
     jmp menu_principal
-
+mostrar_estadisticas:
+    call MostrarEstadisticas
+    jmp menu_principal
 ; ---------- SALIDA ----------
 salir_programa:
     mov dx, offset despedida
