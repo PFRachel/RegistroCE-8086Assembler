@@ -1,5 +1,5 @@
 ; =========================================================
-; Estadistica.asm
+; Estadistica.asm  
 ; =========================================================
 
 MostrarEstadisticas PROC
@@ -11,10 +11,10 @@ MostrarEstadisticas PROC
     push di
     push bp
 
-    ; Recuenta registros
-    call SyncCountFromRecords
+    ; Reconstruye conteo real e indices ocupados
+    call RebuildIndexFromRecords
 
-    ; Verificar si hay registros
+    ; Hay registros?
     cmp student_count, 0
     jne ms_hay_datos
     mov dx, offset msjnoreg
@@ -23,44 +23,43 @@ MostrarEstadisticas PROC
     jmp ms_out
 
 ms_hay_datos:
-    ; Titulo
     mov dx, offset msj_est_tit
     mov ah, 9
     int 21h
 
-    ; Inicializar contadores
+    ; Ordenar ASC 
+    mov op, 1
+    call Burbuja
+
+    ; ---------- Inicializaciones ----------
     mov apr_cnt, 0
     mov rep_cnt, 0
-
-    ; Inicializar suma
     mov sum_entera, 0
     mov WORD PTR sum_decimal, 0
 
-    ; Inicializar max (empezar en 0)
-    mov max_entera, 0
-    mov WORD PTR max_decimal, 0
-
-    ; Inicializar min (empezar en maximo)
+    ; Min/Max
     mov min_entera, 999
     mov WORD PTR min_decimal, 65535
+    mov max_entera, 0
+    mov WORD PTR max_decimal, 0
+    mov word ptr min_slot, 0FFFFh
+    mov word ptr max_slot, 0FFFFh
 
-    ; Escanear registros
+    ; ---------- Escaneo de TODOS los slots ----------
     mov si, offset records
     mov cx, MAX_STUDENTS
-    xor bp, bp              ; contador de registros validos
+    xor bp, bp              ; contador de registros validos 
 
 ms_scan_loop:
     cmp BYTE PTR [si], '$'
     je  ms_next_slot
 
-    ; Extraer valor del registro actual
+    ; Extraer valor normalizado (BX=entera, DX=decimal 0..99999)
     push cx
     push si
     call ExtractValue_Fixed
-    pop si
-    pop cx
-
-    inc bp                  ; incrementar contador de registros válidos
+    pop  si
+    pop  cx
 
     ; Acumular para promedio
     mov ax, [sum_entera]
@@ -71,31 +70,80 @@ ms_scan_loop:
     add ax, dx
     mov WORD PTR [sum_decimal], ax
 
-    ; Actualizar maximo
-    call UpdateMax
+    inc bp
 
-    ; Actualizar minimo  
-    call UpdateMin
-
-    ; Contar aprobados/reprobados (>= 70.0)
+    ; Contar aprobado/reprobado (>= 70.00000)
     cmp bx, 70
     jb  ms_reprobado
-    ja  ms_aprobado
-    ; Si es exactamente 70, cualquier decimal >= 0 es aprobado
-    jmp ms_aprobado
+    inc apr_cnt
+    jmp ms_check_minmax
 
 ms_reprobado:
     inc rep_cnt
-    jmp ms_next_slot
 
-ms_aprobado:
-    inc apr_cnt
+; ---------- Min/Max por comparación (bx,dx) ----------
+ms_check_minmax:
+    ; MAX
+    mov ax, [max_entera]
+    cmp bx, ax
+    ja  upd_max
+    jb  skip_max
+    mov ax, WORD PTR [max_decimal]
+    cmp dx, ax
+    jbe skip_max
+upd_max:
+    mov [max_entera], bx
+    mov WORD PTR [max_decimal], dx
+    ; slot actual = (SI - records) / 64  (shift 6)
+    push ax
+    push dx
+    mov ax, si
+    sub ax, offset records
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    mov [max_slot], ax
+    pop dx
+    pop ax
+skip_max:
+
+    ; MIN
+    mov ax, [min_entera]
+    cmp bx, ax
+    jb  upd_min
+    ja  skip_min
+    mov ax, WORD PTR [min_decimal]
+    cmp dx, ax
+    jae skip_min
+upd_min:
+    mov [min_entera], bx
+    mov WORD PTR [min_decimal], dx
+    push ax
+    push dx
+    mov ax, si
+    sub ax, offset records
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    shr ax, 1
+    mov [min_slot], ax
+    pop dx
+    pop ax
+skip_min:
 
 ms_next_slot:
     add si, SLOT_LEN
     loop ms_scan_loop
 
-    ; Mostrar resultados
+    ; Guardar el total valido en memoria para no depender de BP
+    mov [valid_cnt], bp
+
+    ; ---------- Mostrar resultados ----------
     call MostrarResultados
 
 ms_out:
@@ -109,58 +157,57 @@ ms_out:
     ret
 MostrarEstadisticas ENDP
 
-; Actualizar valor maximo
-UpdateMax PROC
+
+; ---------------------------------------------------------
+; Reconstruir lista index_estudiante (slots ocupados base-0)
+; y fijar student_count con la cantidad REAL de registros.
+; ---------------------------------------------------------
+RebuildIndexFromRecords PROC
     push ax
-    
-    ; Comparar parte entera
-    mov ax, [max_entera]
-    cmp bx, ax
-    ja  um_new_max
-    jb  um_exit
-    
-    ; Partes enteras iguales, comparar decimales
-    mov ax, WORD PTR [max_decimal]
-    cmp dx, ax
-    jbe um_exit
+    push bx
+    push cx
+    push dx
+    push si
+    push di
 
-um_new_max:
-    mov [max_entera], bx
-    mov WORD PTR [max_decimal], dx
+    mov si, offset records
+    xor bx, bx                 ; BX = slot (0..14)
+    xor di, di                 ; DI = posición en index_estudiante
+    mov cx, MAX_STUDENTS
 
-um_exit:
+rb_scan:
+    cmp BYTE PTR [si], '$'
+    je  rb_next
+    mov al, bl
+    mov [index_estudiante + di], al
+    inc di
+rb_next:
+    add si, SLOT_LEN
+    inc bl
+    loop rb_scan
+
+    mov ax, di
+    mov student_count, al
+
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
     pop ax
     ret
-UpdateMax ENDP
+RebuildIndexFromRecords ENDP
 
-; Actualizar valor minimo
-UpdateMin PROC
-    push ax
-    
-    ; Comparar parte entera
-    mov ax, [min_entera]
-    cmp bx, ax
-    jb  um2_new_min
-    ja  um2_exit
-    
-    ; Partes enteras iguales, comparar decimales
-    mov ax, WORD PTR [min_decimal]
-    cmp dx, ax
-    jae um2_exit
 
-um2_new_min:
-    mov [min_entera], bx
-    mov WORD PTR [min_decimal], dx
-
-um2_exit:
-    pop ax
-    ret
-UpdateMin ENDP
-
-; Mostrar todos los resultados calculados
+; ---------------------------------------------------------
+; Mostrar resultados
+; - Usa valid_cnt para promedio/porcentajes (no depende de BP)
+; - Max/Min: imprime la nota textual desde el slot ganador.
+; ---------------------------------------------------------
 MostrarResultados PROC
     push ax
     push bx
+    push cx
     push dx
 
     ; Calcular y mostrar promedio
@@ -168,39 +215,37 @@ MostrarResultados PROC
     mov ah, 9
     int 21h
     
-    ; Promedio entero
+    ; Promedio entera
     mov ax, [sum_entera]
     xor dx, dx
-    mov cx, bp
+    mov cx, [valid_cnt]
     div cx
-    mov bx, ax              ; parte entera del promedio
+    mov bx, ax
 
-    ; Promedio decimal
+    ; Parte decimal
     mov ax, WORD PTR [sum_decimal]
     xor dx, dx
-    mov cx, bp
-    div cx                  ; AX = promedio decimal
+    mov cx, [valid_cnt]
+    div cx
     mov dx, ax
-    
+
     call PrintValue_Simple
     call PrintCRLF
 
-    ; Mostrar maximo
+    ; Mostrar maximo 
     mov dx, offset msj_max_lbl
     mov ah, 9
     int 21h
-    mov bx, [max_entera]
-    mov dx, WORD PTR [max_decimal]
-    call PrintValue_Simple
+    mov bx, [max_slot]
+    call PrintNotaFromSlot     ; preserva BP
     call PrintCRLF
 
     ; Mostrar minimo
     mov dx, offset msj_min_lbl
     mov ah, 9
     int 21h
-    mov bx, [min_entera]
-    mov dx, WORD PTR [min_decimal]
-    call PrintValue_Simple
+    mov bx, [min_slot]
+    call PrintNotaFromSlot     ; preserva BP
     call PrintCRLF
 
     ; Mostrar aprobados
@@ -217,9 +262,9 @@ MostrarResultados PROC
     xor ax, ax
     mov al, apr_cnt
     mov bx, 100
-    mul bx              ; AX = aprobados * 100
-    mov cx, bp
-    div cx              ; AX = porcentaje
+    mul bx
+    mov cx, [valid_cnt]
+    div cx
     call PrintWordDec
     mov dx, offset msj_pct_close
     mov ah, 9
@@ -239,9 +284,9 @@ MostrarResultados PROC
     xor ax, ax
     mov al, rep_cnt
     mov bx, 100
-    mul bx              ; AX = reprobados * 100
-    mov cx, bp
-    div cx              ; AX = porcentaje
+    mul bx
+    mov cx, [valid_cnt]
+    div cx
     call PrintWordDec
     mov dx, offset msj_pct_close
     mov ah, 9
@@ -250,22 +295,131 @@ MostrarResultados PROC
     call PrintCRLF
 
     pop dx
+    pop cx
     pop bx
     pop ax
     ret
 MostrarResultados ENDP
 
-; Extractor de valor corregido
+
+; ---------------------------------------------------------
+; PrintNotaFromSlot
+;  Entrada: BX = slot base-0 (0..14)
+;  Efecto : imprime la nota (último token) con EXACTAMENTE 5 decimales.
+;  IMPORTANTE: preserva BP para no romper cálculos posteriores.
+; ---------------------------------------------------------
+PrintNotaFromSlot PROC
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    push bp                   ; preservar BP
+
+    ; SI = base del slot = records + BX*64
+    mov si, offset records
+    mov ax, bx
+    shl ax, 6
+    add si, ax
+
+    ; Buscar el ultimo espacio en el registro
+    mov di, si
+    mov cx, SLOT_LEN
+    mov bp, si
+pns_find_last_space:
+    mov al, [di]
+    cmp al, '$'
+    je  pns_stop
+    cmp al, ' '
+    jne pns_cont
+    mov bp, di
+pns_cont:
+    inc di
+    loop pns_find_last_space
+pns_stop:
+    mov di, bp
+    inc di          ; inicio del token de nota
+
+    ; Imprimir normalizando a 5 decimales
+    xor bh, bh      ; dot_seen
+    xor bl, bl      ; dec_count
+
+pns_loop:
+    mov al, [di]
+    cmp al, ' '
+    je  pns_end
+    cmp al, '$'
+    je  pns_end
+    cmp al, 0
+    je  pns_end
+
+    cmp al, '.'
+    jne pns_notdot
+    mov bh, 1
+    mov bl, 0
+    mov ah, 2
+    mov dl, al
+    int 21h
+    inc di
+    jmp pns_loop
+
+pns_notdot:
+    cmp bh, 1
+    jne pns_print
+    cmp bl, 5
+    jae pns_skip
+    inc bl
+pns_print:
+    mov ah, 2
+    mov dl, al
+    int 21h
+    inc di
+    jmp pns_loop
+
+pns_skip:
+    inc di
+    jmp pns_loop
+
+pns_end:
+    cmp bh, 1
+    je  pns_have_dot
+    mov ah, 2
+    mov dl, '.'
+    int 21h
+    mov bl, 0
+pns_have_dot:
+    cmp bl, 5
+    jae pns_done
+pns_pad:
+    mov ah, 2
+    mov dl, '0'
+    int 21h
+    inc bl
+    cmp bl, 5
+    jb  pns_pad
+pns_done:
+    pop bp                   ; restaurar BP
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+    ret
+PrintNotaFromSlot ENDP
+
+
+; ================= Utilidades existentes =================
+
+; Extrae valor numurico (BX=entera, DX=decimal 0..99999) desde SI
 ExtractValue_Fixed PROC
     push cx
     push si
     push di
-
-    ; Buscar el ultimo espacio en el registro
     mov di, si
     add di, SLOT_LEN
-    dec di                  ; DI apunta al final del slot
-
+    dec di
 ev_find_last_space:
     cmp di, si
     je  ev_no_space_found
@@ -275,22 +429,16 @@ ev_find_last_space:
     je  ev_continue_search
     dec di
     jmp ev_find_last_space
-
 ev_continue_search:
     dec di
     jmp ev_find_last_space
-
 ev_space_found:
-    inc di                  ; DI apunta al inicio de la nota
+    inc di   ; DI apunta al inicio de la nota
     jmp ev_start_parse
-
 ev_no_space_found:
-    mov di, si              ; usar inicio si no hay espacio
-
+    mov di, si
 ev_start_parse:
-    ; Parsear parte entera
-    xor bx, bx              ; BX = parte entera
-
+    xor bx, bx
 ev_parse_integer:
     mov al, [di]
     cmp al, '.'
@@ -305,8 +453,6 @@ ev_parse_integer:
     jb  ev_parse_done
     cmp al, '9'
     ja  ev_parse_done
-    
-    ; BX = BX * 10 + digit
     sub al, '0'
     mov ah, 0
     push ax
@@ -316,15 +462,12 @@ ev_parse_integer:
     mov bx, ax
     pop ax
     add bx, ax
-    
     inc di
     jmp ev_parse_integer
-
 ev_found_dot:
-    inc di                  ; saltar el punto
-    xor dx, dx              ; DX = parte decimal
-    mov cx, 5               ; maximo 5 digitos
-
+    inc di
+    xor dx, dx
+    mov cx, 5
 ev_parse_decimal:
     cmp cx, 0
     je  ev_parse_done
@@ -339,8 +482,6 @@ ev_parse_decimal:
     jb  ev_fill_zeros
     cmp al, '9'
     ja  ev_fill_zeros
-    
-    ; DX = DX * 10 + digit
     sub al, '0'
     mov ah, 0
     push ax
@@ -352,13 +493,10 @@ ev_parse_decimal:
     pop cx
     pop ax
     add dx, ax
-    
     inc di
     dec cx
     jmp ev_parse_decimal
-
 ev_fill_zeros:
-    ; Completar con ceros los digitos faltantes
 ev_zero_loop:
     cmp cx, 0
     je  ev_parse_done
@@ -370,7 +508,6 @@ ev_zero_loop:
     pop cx
     dec cx
     jmp ev_zero_loop
-
 ev_parse_done:
     pop di
     pop si
@@ -378,37 +515,26 @@ ev_parse_done:
     ret
 ExtractValue_Fixed ENDP
 
-; Imprimir valor con formato XXX.DDDDD
+; Imprimir valor con formato XXX.DDDDD (BX=entera, DX=decimal)
 PrintValue_Simple PROC
     push ax
     push cx
     push dx
-    
-    ; Imprimir parte entera (BX) usando funcion existente
     mov ax, bx
     call PrintWordDec
-    
-    ; Imprimir punto decimal
     mov ah, 2
     mov dl, '.'
     int 21h
-    
-    ; Imprimir exactamente 5 digitos decimales (DX)
-    mov ax, dx              ; parte decimal (0-99999)
-    
-    ; Asegurar que tenemos exactamente 5 digitos
-    ; Digito 1 (10000s)
+    mov ax, dx
     mov bx, 10000
     xor dx, dx
     div bx
-    push dx                 ; guardar resto
+    push dx
     mov dl, al
     add dl, '0'
     mov ah, 2
     int 21h
-    pop ax                  ; recuperar resto
-    
-    ; Digito 2 (1000s)
+    pop ax
     mov bx, 1000
     xor dx, dx
     div bx
@@ -418,8 +544,6 @@ PrintValue_Simple PROC
     mov ah, 2
     int 21h
     pop ax
-    
-    ; Digito 3 (100s)
     mov bx, 100
     xor dx, dx
     div bx
@@ -429,30 +553,26 @@ PrintValue_Simple PROC
     mov ah, 2
     int 21h
     pop ax
-    
-    ; Digito 4 (10s)
     mov bl, 10
     xor ah, ah
     div bl
-    push ax                 ; AH = unidades, AL = decenas
+    push ax
     mov dl, al
     add dl, '0'
     mov ah, 2
     int 21h
     pop ax
-    
-    ; Digito 5 (1s)
     mov dl, ah
     add dl, '0'
     mov ah, 2
     int 21h
-    
     pop dx
     pop cx
     pop ax
     ret
 PrintValue_Simple ENDP 
 
+; Imprimir AX en decimal (sin ceros a la izquierda)
 PrintWordDec PROC
     push ax
     push bx
@@ -487,3 +607,8 @@ pwd_fin:
     pop ax
     ret
 PrintWordDec ENDP
+
+; -------- variables internas --------
+min_slot  dw 0FFFFh
+max_slot  dw 0FFFFh
+valid_cnt dw 0
